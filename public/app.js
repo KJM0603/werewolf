@@ -28,12 +28,12 @@ function send(event,data={}) { if (!state.ws || state.ws.readyState!==WebSocket.
 function rejoin() { const saved=JSON.parse(localStorage.getItem('one-night-session')||'null'); if(saved){reconnecting=true;send('room:reconnect',saved);} }
 function handleMessage(event,data) {
   if(event==='error'){state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
-  if(event==='room:joined') { state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;saveSession();state.error='';syncPeers();render();return; }
+  if(event==='room:joined') { state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncPeers();render();return; }
   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
     const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
     // Night prompts are private and may otherwise remain visible after their
     // owner's turn times out. Keep controls only while their role is active.
-    if(data.phase!=='night'||data.nightTurn!==previousNightTurn&&state.prompt&&(state.prompt.targetRole||state.prompt.role)!==data.nightTurn)state.prompt=null;
+    if(data.phase!=='paused'&&(data.phase!=='night'||data.nightTurn!==previousNightTurn&&state.prompt&&(state.prompt.role==='doppelganger-copy'&&data.nightTurn==='doppelganger'?'doppelganger':state.prompt.targetRole||state.prompt.role)!==data.nightTurn))state.prompt=null;
     if(previous==='role_reveal'&&data.phase==='night')state.privateVisible=false;
     if(previous!==data.phase && data.phase==='discussion')notify('토론을 시작합니다.');
     if(previous!==data.phase && data.phase==='voting')notify('투표해 주세요.');
@@ -44,7 +44,7 @@ function handleMessage(event,data) {
   if(event==='night:prompt'){state.prompt=data;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
   if(event==='night:turn-ended'){state.prompt=null;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
   if(event==='night:info'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push({title:ROLE_INFO[data.role]?.name||'밤 정보',currentRole:data.currentRole,text:data.loneWolf?'혼자 깨어났습니다. 중앙 카드 한 장을 직접 선택해 확인하세요.':data.role==='mason'?`함께 깨어난 프리메이슨: ${data.others?.length?data.others.join(', '):'없음'}`:data.others?.length?`함께 깨어난 늑대: ${data.others.join(', ')}`:data.wolves?`늑대인간: ${data.wolves.length?data.wolves.join(', '):'없음'}`:data.currentRole?`현재 역할: ${ROLE_INFO[data.currentRole]?.name||data.currentRole}`:'확인할 정보가 없습니다.'});render();return;}
-  if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();notify(data.text||data.roles?.join(' · ')||data.title);return;}
+  if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();if(!data.replay)notify(data.text||data.roles?.join(' · ')||data.title);return;}
   if(event==='chat:message'){state.chat.push(data);if(state.room)state.room.chat=state.chat.slice(-40);render();return;}
   if(event==='game:result'){state.room.result=data;state.room.phase='result';state.prompt=null;state.resultSplashComplete=false;const splashId=++state.resultSplashId;render();setTimeout(()=>{if(state.resultSplashId===splashId){state.resultSplashComplete=true;render();}},3000);return;}
   if(event.startsWith('webrtc:')){handleSignal(event,data);return;}
@@ -109,9 +109,14 @@ function nightPanel() {
   return `<div class="section-kicker">NIGHT PHASE</div><h2 class="section-title">밤이 깊었습니다</h2><p class="section-copy">화면을 다른 사람에게 보여주지 마세요. 밤 행동은 정해진 순서로 진행됩니다.</p>${timerMarkup()}<div class="night-turn" role="status"><span>지금 차례</span><strong>${turn.emoji} ${turn.name}</strong></div>${roleCard()}${privateResult}${control}`;
 }
 
+function privateNotes() {
+  const entries=state.privateResults.map(result=>`<p><strong>${esc(result.title||'밤 정보')}</strong><br>${esc(result.text||result.roles?.join(' · ')||'')}</p>`).join('');
+  return `<details id="private-notes"><summary>내 밤 정보 · 나만 보기</summary><p>마지막으로 확인한 역할: ${esc(ROLE_INFO[state.privateRole]?.name||'없음')}</p>${entries||'<p>추가로 확인한 밤 정보가 없습니다.</p>'}</details>`;
+}
+
 function chatPanel() {
   const chat=state.chat.length?state.chat:state.room.chat||[];
-  return `<section class="panel chat-panel"><div class="section-kicker">TABLE TALK</div><h2 class="section-title" style="font-size:18px">채팅</h2><div class="chat-box" id="chat-box">${chat.map(m=>`<div class="chat-msg"><strong>${esc(m.name)}</strong>${esc(m.text)}</div>`).join('')||'<div class="muted">아직 대화가 없습니다.</div>'}</div><form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" placeholder="메시지 입력 · Enter로 전송" autocomplete="off"><button class="btn" aria-label="보내기">↗</button></form></section>`;
+  return `<section class="panel chat-panel"><div class="section-kicker">TABLE TALK</div><h2 class="section-title" style="font-size:18px">채팅</h2><div class="chat-box" id="chat-box">${privateNotes()}${chat.map(m=>`<div class="chat-msg"><strong>${esc(m.name)}</strong>${esc(m.text)}</div>`).join('')||'<div class="muted">아직 대화가 없습니다.</div>'}</div><form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" placeholder="메시지 입력 · Enter로 전송" autocomplete="off"><button class="btn" aria-label="보내기">↗</button></form></section>`;
 }
 
 function resultPanel() {

@@ -61,10 +61,12 @@ for (const [index, expected] of ['예언자', '주정뱅이', '무두장이'].en
     assert.ok(f.messages.slice(1).every(m => results(m).length === 0));
     assert.equal(f.room.actionPrompt, null);
     assert.equal(f.room.phase, 'night');
-    assert.equal(f.room.timer.ms, 5000); // Keep the result readable before discussion.
+    assert.equal(f.room.timer.ms, 5000); // Do not reset the public deadline after a selection.
     f.applyNightAction(f.room, 'p0', { centerIndex: (index + 1) % 3 });
     assert.equal(results(f.messages[0]).length, 1);
     f.timerExpired(f.room);
+    assert.equal(f.room.activeRole, 'seer'); // Center roles must also be announced.
+    while (f.room.phase === 'night') f.timerExpired(f.room);
     assert.equal(f.room.phase, 'discussion');
   });
 }
@@ -97,6 +99,8 @@ test('timeout reveals nothing; an AI lone wolf chooses exactly one valid index',
   const timedOut = fixture();
   timedOut.timerExpired(timedOut.room);
   assert.equal(results(timedOut.messages.flat()).length, 0);
+  assert.equal(timedOut.room.activeRole, 'seer');
+  while (timedOut.room.phase === 'night') timedOut.timerExpired(timedOut.room);
   assert.equal(timedOut.room.phase, 'discussion');
   const bot = fixture();
   const action = bot.botNightAction(bot.room, 'p0');
