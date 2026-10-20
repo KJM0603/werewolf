@@ -244,7 +244,7 @@ function beginVoteReveal(room, reason) {
 }
 
 function beginAction(room, role) {
-  const durationMs = role === 'doppelganger' ? 17000 : ['seer', 'robber', 'troublemaker'].includes(role) ? 7000 : 5000;
+  const durationMs = role === 'doppelganger' ? 13000 : ['seer', 'robber', 'troublemaker'].includes(role) ? 7000 : 5000;
   room.activeRole = role;
   room.actionActors = actorIds(room, role).filter((id) => !room.actionDone.has(`${role}:${id}`));
   room.actionIndex = 0;
