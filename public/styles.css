@@ -86,6 +86,13 @@ h1 { font-size:clamp(38px, 7vw, 66px); letter-spacing:-.065em; line-height:1.08;
 .night-actions { width:min(500px, 100%); margin:20px auto; }
 .night-actions select { margin:5px 0 10px; }
 .night-actions .btn { width:100%; }
+.night-action-area { scroll-margin:16px; }
+.night-status { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:16px 0; }
+.night-status .night-turn { margin:0; }
+.night-status .timer { width:auto; height:auto; margin:0; border:0; box-shadow:none; font-size:27px; }
+.night-status .timer-label { margin:4px 0 0; }
+.night-action-guide { padding:12px 14px; border:1px solid #b39cf377; border-radius:12px; background:#2c263b; color:#e5dafb; }
+.night-action-guide p { margin:6px 0 0; color:#c1b7d2; font-size:12px; line-height:1.5; }
 .choice-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0; }
 .choice { text-align:left; border:1px solid #393742; background:#16161c; padding:11px; border-radius:10px; font-size:12px; }
 .choice.selected { border-color:#b39cf3; background:#302a3e; }

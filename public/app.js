@@ -15,6 +15,7 @@ let leavingRoom = false;
 let chatHeight = 280;
 let micPending = false;
 let playbackBlocked = false;
+let nightActionPending = false;
 
 function esc(v='') { return String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function notify(message) { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove('show'),3000); }
@@ -56,8 +57,8 @@ function leaveLobby() {
 function handleMessage(event,data) {
   if(event==='room:left'){returnToHome();return;}
   if(event==='room:notice'){notify(data.message);return;}
-  if(event==='error'){leavingRoom=false;state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
-  if(event==='room:joined') { state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncPeers();render();return; }
+  if(event==='error'){leavingRoom=false;nightActionPending=false;state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
+  if(event==='room:joined') { nightActionPending=false;state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncPeers();render();return; }
   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
     const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
     // Night prompts are private and may otherwise remain visible after their
@@ -70,10 +71,10 @@ function handleMessage(event,data) {
     render();return;
   }
   if(event==='role:private'){state.privateRole=data.role;state.privateVisible=true;render();return;}
-  if(event==='night:prompt'){state.prompt=data;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
-  if(event==='night:turn-ended'){state.prompt=null;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
+  if(event==='night:prompt'){nightActionPending=false;state.prompt=data;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();document.querySelector('.night-action-area')?.scrollIntoView?.({block:'nearest'});return;}
+  if(event==='night:turn-ended'){nightActionPending=false;state.prompt=null;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();if(data.reason==='timeout')notify('밤 행동 시간이 종료되었습니다. 제출하지 않은 행동은 적용되지 않았습니다.');return;}
   if(event==='night:info'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push({title:ROLE_INFO[data.role]?.name||'밤 정보',currentRole:data.currentRole,text:data.loneWolf?'혼자 깨어났습니다. 중앙 카드 한 장을 직접 선택해 확인하세요.':data.role==='mason'?`함께 깨어난 프리메이슨: ${data.others?.length?data.others.join(', '):'없음'}`:data.others?.length?`함께 깨어난 늑대: ${data.others.join(', ')}`:data.wolves?`늑대인간: ${data.wolves.length?data.wolves.join(', '):'없음'}`:data.currentRole?`현재 역할: ${ROLE_INFO[data.currentRole]?.name||data.currentRole}`:'확인할 정보가 없습니다.'});render();return;}
-  if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();if(!data.replay)notify(data.text||data.roles?.join(' · ')||data.title);return;}
+  if(event==='night:result'){nightActionPending=false;if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();if(!data.replay)notify(data.text||data.roles?.join(' · ')||data.title);return;}
   if(event==='discussion:skip-state'){if(state.room){state.room.discussionSkip=data;updateDiscussionSkipControls();}return;}
   if(event==='chat:message'){state.chat.push(data);state.chat=state.chat.slice(-200);if(state.room)state.room.chat=state.chat;appendChatMessage(data);return;}
   if(event==='game:result'){state.room.result=data;state.room.phase='result';state.prompt=null;state.resultSplashComplete=false;syncMediaToPhase();const splashId=++state.resultSplashId;render();setTimeout(()=>{if(state.resultSplashId===splashId){state.resultSplashComplete=true;render();}},3000);return;}
@@ -137,8 +138,11 @@ function nightPanel() {
     else if(targetRole==='robber')control=`<div class="night-actions"><p class="muted">한 명과 역할 카드를 바꾸고 새 역할을 확인합니다.</p>${targetSelect}<button class="btn" id="submit-night">역할 바꾸기</button></div>`;
     else if(targetRole==='troublemaker')control=`<div class="night-actions"><p class="muted">서로 다른 두 명을 선택해 역할을 바꿉니다.</p><label class="field-label">첫 번째 플레이어</label><select class="input" id="night-target"><option value="">선택</option>${players.map(p=>`<option value="${p.id}" ${state.selectedTarget===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select><label class="field-label">두 번째 플레이어</label><select class="input" id="night-target-2"><option value="">선택</option>${players.map(p=>`<option value="${p.id}" ${state.selectedSecond===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select><button class="btn" id="submit-night">두 역할 바꾸기</button></div>`;
     else if(targetRole==='drunk')control=`<div class="night-actions"><p class="muted">중앙 카드 한 장과 역할을 바꿉니다. 바꾼 카드는 볼 수 없습니다.</p><div class="choice-grid">${[0,1,2].map(i=>`<button class="choice ${state.selectedCenter.includes(i)?'selected':''}" data-center="${i}">중앙 카드 ${i+1}</button>`).join('')}</div><button class="btn" id="submit-night">역할 바꾸기</button></div>`;
-  } else control=`<div class="role-card"><div class="role-emoji">🌘</div><div class="role-name" style="font-size:18px">밤이 진행 중입니다</div><div class="role-secret">내 차례가 오면 행동 안내가 표시됩니다.</div></div>`;
-  return `<div class="section-kicker">NIGHT PHASE</div><h2 class="section-title">밤이 깊었습니다</h2><p class="section-copy">화면을 다른 사람에게 보여주지 마세요. 밤 행동은 정해진 순서로 진행됩니다.</p>${timerMarkup()}<div class="night-turn" role="status"><span>지금 차례</span><strong>${turn.emoji} ${turn.name}</strong></div>${roleCard()}${privateResult}${control}`;
+  } else control=`<p class="section-copy">다음 행동 안내를 기다려 주세요. 확인한 정보와 제출 결과는 아래에 표시됩니다.</p>`;
+  const copiedAction=prompt?.role==='doppelganger-copy'&&state.room.nightTurn==='doppelganger';
+  const actionGuide=copiedAction?`<div class="night-action-guide" role="status"><strong>복사 완료 · ${esc(ROLE_INFO[prompt.targetRole]?.name||prompt.targetRole)} 능력을 지금 사용하세요</strong><p>도플갱어의 남은 시간 안에 대상을 선택하고 아래 버튼을 눌러 주세요.</p></div>`:'';
+  if(nightActionPending)control=control.replace(/id="submit-night"[^>]*>/,'id="submit-night" disabled>').replace(/(id="submit-night" disabled>)[^<]*/,'$1처리 중…');
+  return `<div class="section-kicker">NIGHT PHASE</div><h2 class="section-title">밤이 깊었습니다</h2><p class="section-copy">화면을 다른 사람에게 보여주지 마세요. 밤 행동은 정해진 순서로 진행됩니다.</p><div class="night-action-area"><div class="night-status"><div class="night-turn" role="status"><span>지금 차례</span><strong>${turn.emoji} ${turn.name}</strong></div><div>${timerMarkup()}</div></div>${actionGuide}${control}</div>${privateResult}${roleCard()}`;
 }
 
 function privateNotes() {
@@ -305,13 +309,14 @@ function bindGameEvents() {
   document.querySelector('#leave-room')?.addEventListener('click',()=>{localStorage.removeItem('one-night-session');location.reload();});
 }
 function submitNight() {
-  if(!state.prompt)return;
+  if(!state.prompt||nightActionPending)return;
   const prompt=state.prompt;const targetRole=prompt.targetRole||prompt.role;const data={};
   if(prompt.role==='doppelganger'||targetRole==='seer'||targetRole==='robber'){data.targetId=state.selectedTarget;if(!data.targetId&&!(targetRole==='seer'&&state.selectedCenter.length===2))return notify('대상 또는 중앙 카드 두 장을 선택해 주세요.');}
   if(targetRole==='seer'&&state.selectedCenter.length===2)data.centerIndexes=state.selectedCenter;
   if(targetRole==='troublemaker'){data.targetId=state.selectedTarget;data.secondTargetId=state.selectedSecond;if(!data.targetId||!data.secondTargetId||data.targetId===data.secondTargetId)return notify('서로 다른 두 플레이어를 선택해 주세요.');}
   if(targetRole==='drunk'||targetRole==='werewolf'){if(state.selectedCenter.length!==1)return notify('중앙 카드 한 장을 선택해 주세요.');data.centerIndex=state.selectedCenter[0];}
-  send('night:action',data);state.prompt=null;render();
+  nightActionPending=true;render();
+  if(!send('night:action',data)){nightActionPending=false;render();}
 }
 function bindAudio() {
   document.querySelectorAll('#mic-toggle').forEach(btn=>btn.addEventListener('click',toggleMic));

@@ -46,6 +46,54 @@ function fixture(roles, centerRoles = ['villager', 'villager', 'villager']) {
 const winner=(result,id)=>result.winners.find(p=>p.id===id).win;
 const results=(f,id)=>f.messages(id).filter(m=>m.event==='night:result');
 
+for(const [role,data] of [
+  ['seer',{centerIndexes:[0,1]}],
+  ['robber',{targetId:'p2'}],
+  ['troublemaker',{targetId:'p1',secondTargetId:'p2'}],
+  ['drunk',{centerIndex:0}]
+])test(`doppelganger copies ${role}, reconnects, and completes its immediate ability once`,()=>{
+  const f=fixture(['doppelganger',role,'werewolf'],['tanner','villager','hunter']);
+  f.beginAction(f.room,'doppelganger');const deadline=f.room.timerEndsAt;
+  assert.equal(f.room.timer.ms,13000);
+  f.applyNightAction(f.room,'p0',{targetId:'p1'});
+  const restored=f.reconnect('p0');
+  const prompt=restored.find(m=>m.event==='night:prompt').data;
+  assert.equal(prompt.role,'doppelganger-copy');assert.equal(prompt.targetRole,role);
+  f.applyNightAction(f.room,'p0',data);
+  assert.equal(f.room.actionPrompt,null);assert.equal(f.room.timerEndsAt,deadline);
+  assert.equal(f.room.actionDone.has('doppelganger:p0'),true);
+  const knowledge=f.room.players.get('p0').knowledge.events;
+  assert.equal(knowledge.filter(e=>e.event==='night:result').length,2);
+  if(role==='seer')assert.deepEqual(knowledge.at(-1).data.roles,['무두장이','주민']);
+  if(role==='robber')assert.equal(f.roleForPlayer(f.room,'p0'),'werewolf');
+  if(role==='troublemaker'){assert.equal(f.roleForPlayer(f.room,'p1'),'werewolf');assert.equal(f.roleForPlayer(f.room,'p2'),'troublemaker');}
+  if(role==='drunk')assert.equal(f.roleForPlayer(f.room,'p0'),'tanner');
+  f.applyNightAction(f.room,'p0',data);
+  assert.equal(knowledge.filter(e=>e.event==='night:result').length,2);
+  f.beginAction(f.room,role);
+  assert.ok(!f.room.actionActors.includes('p0'),'Do not repeat the copied ability in the normal role turn');
+});
+for(const role of ['werewolf','mason','insomniac'])test(`copied ${role} receives its information in that role's turn`,()=>{
+  const f=fixture(['doppelganger',role,'villager']);
+  f.action('doppelganger','p0',{targetId:'p1'});
+  assert.equal(f.room.actionPrompt,null);
+  f.beginAction(f.room,role);
+  assert.ok(f.messages('p0').some(m=>m.event==='night:info'&&m.data.role===role));
+});
+for(const role of ['villager','tanner','hunter'])test(`copied ${role} clearly finishes with no extra night action`,()=>{
+  const f=fixture(['doppelganger',role,'werewolf']);
+  f.action('doppelganger','p0',{targetId:'p1'});
+  assert.equal(f.room.actionPrompt,null);assert.equal(f.roleForPlayer(f.room,'p0'),role);
+  assert.match(results(f,'p0').at(-1).data.text,/추가로 수행할 행동이 없습니다/);
+});
+test('copied ability timeout explicitly ends the turn without changing the public deadline',()=>{
+  const f=fixture(['doppelganger','robber','werewolf']);
+  f.action('doppelganger','p0',{targetId:'p1'});
+  f.timerExpired(f.room);
+  assert.equal(f.roleForPlayer(f.room,'p0'),'robber');
+  assert.ok(f.messages('p0').some(m=>m.event==='night:turn-ended'&&m.data.reason==='timeout'));
+});
+
 test('lobby chat broadcasts to other players and remains available after reconnect and game start',()=>{
   const f=fixture(['villager','seer','robber']);f.room.phase='lobby';
   f.handle(f.room.players.get('p1').socket,'chat:send',{text:'  준비됐습니다  '});

@@ -5,7 +5,7 @@ import test from 'node:test';
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').split('setInterval(()=>')[0];
 function ui(document={querySelector:()=>null}) {
   const context=vm.createContext({document,setTimeout(){},clearTimeout(){},WebSocket:{OPEN:1}});
-  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,bindGameEvents,bindChatEvents,chatPanel,render};`,context);
+  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,bindGameEvents,bindChatEvents,chatPanel,nightPanel,submitNight,render};`,context);
   return {...context.api,context};
 }
 function result(roles,wins,killed=[]) {
@@ -13,6 +13,34 @@ function result(roles,wins,killed=[]) {
     winners:wins.map((win,i)=>({id:`p${i}`,win})),killed,center:['늑대인간','늑대인간','주민'],
     villageWin:false,wolfTeamWin:false,minionWin:false};
 }
+test('copied ability stays available after a failed send or server rejection and can be retried',()=>{
+  const f=ui();const sent=[];
+  vm.runInContext('render=()=>{};notify=()=>{};send=()=>false;',f.context);
+  f.state.room={phase:'night',nightTurn:'doppelganger'};
+  const prompt={role:'doppelganger-copy',targetRole:'robber',players:[{id:'p1',name:'대상'}]};
+  f.state.prompt=prompt;f.state.selectedTarget='p1';
+  f.submitNight();assert.equal(f.state.prompt,prompt);
+  assert.doesNotMatch(f.nightPanel(),/id="submit-night" disabled/);
+  f.context.record=data=>sent.push(data);
+  vm.runInContext('send=(event,data)=>{record(data);return true;};',f.context);
+  f.submitNight();f.submitNight();assert.equal(sent.length,1);
+  f.handleMessage('error',{message:'다시 선택해 주세요.'});
+  assert.equal(f.state.prompt,prompt);f.submitNight();assert.equal(sent.length,2);
+  f.handleMessage('night:result',{title:'역할 교환',currentRole:'werewolf'});
+  assert.equal(f.state.prompt,null);assert.equal(f.state.privateRole,'werewolf');
+});
+test('copy result followed by a new action displays the copied controls above role cards and results',()=>{
+  const f=ui();
+  vm.runInContext('render=()=>{};notify=()=>{};',f.context);
+  f.state.room={phase:'night',nightTurn:'doppelganger'};
+  f.handleMessage('night:result',{title:'복사한 역할',currentRole:'seer'});
+  f.handleMessage('night:prompt',{role:'doppelganger-copy',targetRole:'seer',players:[]});
+  const html=f.nightPanel();
+  assert.match(html,/예언자 능력을 지금 사용하세요/);
+  assert.ok(html.indexOf('id="submit-night"')<html.indexOf('class="night-result"'));
+  assert.ok(html.indexOf('id="submit-night"')<html.indexOf('id="role-card"'));
+  assert.doesNotMatch(html,/id="submit-night" disabled/);
+});
 for(const [name,data,expected] of [
   ['all wolves in center and villager killed',result(['villager','seer','robber'],[false,false,false],['p0']),'승리한 사람이 없습니다'],
   ['no wolves and no death',{...result(['villager','seer','robber'],[true,true,true]),villageWin:true},'마을 팀 승리!'],

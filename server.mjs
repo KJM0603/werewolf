@@ -304,9 +304,9 @@ function nextAction(room) {
   startDiscussion(room);
 }
 
-function completeActor(room, playerId) {
+function completeActor(room, playerId, reason = 'completed') {
   const role = room.activeRole;
-  privateSend(room, playerId, 'night:turn-ended', {});
+  privateSend(room, playerId, 'night:turn-ended', { reason });
   room.actionDone.add(`${role}:${playerId}`);
   room.actionIndex += 1;
   const nextPlayer = room.actionActors[room.actionIndex];
@@ -369,7 +369,10 @@ function applyNightAction(room, playerId, data) {
     const own = playerCard(room, playerId);
     own.copyRole = copied;
     room.copyRoles.set(playerId, copied);
-    privateSend(room, playerId, 'night:result', { title: '복사한 역할', currentRole: copied, text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[copied] || copied}입니다. 해당 역할을 복사했습니다.` });
+    const nextStep = IMMEDIATE_COPY_ROLES.has(copied) ? '지금 복사한 능력을 한 번 더 수행해 주세요.'
+      : ['werewolf', 'mason', 'insomniac'].includes(copied) ? `${ROLE_NAME[copied]} 차례에 함께 행동합니다.`
+      : copied === 'minion' ? '지금 늑대인간 정보를 확인합니다.' : '이 역할은 밤에 추가로 수행할 행동이 없습니다.';
+    privateSend(room, playerId, 'night:result', { title: '복사한 역할', currentRole: copied, text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[copied] || copied}입니다. ${nextStep}` });
     if (copied === 'minion') {
       privateSend(room, playerId, 'night:info', { role: 'minion', wolves: actorIds(room, 'werewolf').map((id) => room.players.get(id)?.name) });
     }
@@ -441,7 +444,7 @@ function timerExpired(room) {
   if (room.phase === 'role_reveal') beginNight(room);
   else if (room.phase === 'night') {
     const active = room.actionPrompt?.playerId;
-    if (active) completeActor(room, active);
+    if (active) completeActor(room, active, 'timeout');
     nextAction(room);
   } else if (room.phase === 'discussion') enterVoting(room);
   else if (room.phase === 'voting') beginVoteReveal(room, '투표 시간이 끝났습니다.');

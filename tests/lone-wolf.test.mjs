@@ -140,5 +140,8 @@ test('UI selects a single back, replaces its selection, and submits only its ind
   assert.doesNotMatch(nightPanel(), /id="submit-night" disabled/);
   submitNight();
   assert.deepEqual(sent, [{ event: 'night:action', data: { centerIndex: 2 } }]);
-  assert.equal(state.prompt, null);
+  assert.equal(state.prompt.role, 'werewolf', 'Keep the action until the server confirms it');
+  assert.match(nightPanel(), /id="submit-night" disabled/);
+  submitNight();
+  assert.equal(sent.length, 1, 'Do not double-submit while awaiting confirmation');
 });
