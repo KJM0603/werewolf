@@ -5,7 +5,7 @@ import test from 'node:test';
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').split('setInterval(()=>')[0];
 function ui(document={querySelector:()=>null}) {
   const context=vm.createContext({document,setTimeout(){},clearTimeout(){},WebSocket:{OPEN:1}});
-  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,bindGameEvents,render};`,context);
+  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,bindGameEvents,bindChatEvents,chatPanel,render};`,context);
   return {...context.api,context};
 }
 function result(roles,wins,killed=[]) {
@@ -49,6 +49,39 @@ test('failed chat send preserves the unsent draft',()=>{
   vm.runInContext('send=()=>false;',f.context);f.state.room={phase:'discussion'};
   f.bindGameEvents();submit({preventDefault(){}});
   assert.equal(input.value,'재전송할 내용');
+});
+
+test('chat resizing updates layout without rerendering, losing drafts, or moving a history reader',()=>{
+  let resize;const styles=[];
+  const slider={addEventListener(event,callback){resize=callback;}};
+  const box={scrollHeight:1600,scrollTop:240,clientHeight:200};
+  const input={value:'작성 중입니다',selectionStart:3};
+  const panel={style:{setProperty:(key,value)=>styles.push([key,value])}};
+  const nodes={'#chat-height':slider,'#chat-box':box,'#chat-input':input,'.chat-panel':panel,'.discussion-dock':panel};
+  const f=ui({querySelector:selector=>nodes[selector]||null});
+  vm.runInContext('render=()=>{throw new Error("Resize must not rerender");};',f.context);
+  f.state.room={phase:'lobby',chat:[]};
+  f.bindChatEvents();resize({target:{value:'520'}});
+  assert.deepEqual(styles,[['--chat-height','520px'],['--chat-height','520px']]);
+  assert.equal(box.scrollTop,240);assert.equal(input.value,'작성 중입니다');assert.equal(input.selectionStart,3);
+  assert.ok(f.chatPanel().includes('value="520"'));
+  assert.ok(!f.chatPanel().includes('private-notes'));
+  f.state.room.phase='discussion';
+  assert.ok(f.chatPanel().includes('value="520"'));
+  assert.ok(f.chatPanel().includes('private-notes'));
+});
+test('room rerenders preserve history position and draft selection',()=>{
+  const oldBox={scrollTop:120,scrollHeight:1800,clientHeight:200};
+  const newBox={scrollTop:1600,scrollHeight:1800,clientHeight:200};
+  const oldInput={value:'작성 중',selectionStart:1,selectionEnd:2};
+  const newInput={focus(){},setSelectionRange(start,end){this.selectionStart=start;this.selectionEnd=end;}};
+  const nodes={'#chat-box':oldBox,'#chat-input':oldInput};
+  const f=ui({querySelector:selector=>nodes[selector]||null,activeElement:{id:'chat-input'}});
+  f.context.swap=()=>{nodes['#chat-box']=newBox;nodes['#chat-input']=newInput;};
+  vm.runInContext('gameView=()=>swap();',f.context);f.state.room={phase:'lobby'};
+  f.render();
+  assert.equal(newBox.scrollTop,120);assert.equal(newInput.value,'작성 중');
+  assert.equal(newInput.selectionStart,1);assert.equal(newInput.selectionEnd,2);
 });
 
 test('discussion consent updates only its controls, leaving chat and video mounted',()=>{

@@ -46,6 +46,29 @@ function fixture(roles, centerRoles = ['villager', 'villager', 'villager']) {
 const winner=(result,id)=>result.winners.find(p=>p.id===id).win;
 const results=(f,id)=>f.messages(id).filter(m=>m.event==='night:result');
 
+test('lobby chat broadcasts to other players and remains available after reconnect and game start',()=>{
+  const f=fixture(['villager','seer','robber']);f.room.phase='lobby';
+  f.handle(f.room.players.get('p1').socket,'chat:send',{text:'  준비됐습니다  '});
+  assert.equal(f.messages('p0').at(-1).event,'chat:message');
+  assert.equal(f.messages('p0').at(-1).data.text,'준비됐습니다');
+  assert.equal(f.messages('p2').at(-1).data.playerId,'p1');
+  assert.equal(f.reconnect('p1').find(m=>m.event==='room:joined').data.room.chat[0].text,'준비됐습니다');
+  f.startGame(f.room);
+  assert.equal(f.publicRoom(f.room).chat[0].text,'준비됐습니다');
+  const count=f.room.chat.length;f.room.phase='night';
+  f.handle(f.room.players.get('p0').socket,'chat:send',{text:'밤에는 전송 불가'});
+  assert.equal(f.room.chat.length,count);
+});
+test('chat retains the latest 200 messages consistently in memory and reconnect snapshots',()=>{
+  const f=fixture(['villager','seer','robber']);f.room.phase='lobby';
+  for(let i=0;i<205;i++)f.handle(f.room.players.get('p0').socket,'chat:send',{text:`메시지 ${i}`});
+  assert.equal(f.room.chat.length,200);
+  assert.equal(f.publicRoom(f.room).chat[0].text,'메시지 5');
+  assert.equal(f.publicRoom(f.room).chat.at(-1).text,'메시지 204');
+  f.handle(f.room.players.get('p0').socket,'chat:send',{text:'   '});
+  assert.equal(f.room.chat.at(-1).text,'메시지 204');
+});
+
 test('lobby leave removes membership and reconnect token, resizes roles, and permits creating another room',()=>{
   const f=fixture(['villager','seer','robber']);f.room.phase='lobby';f.room.customRoles=true;
   const ws=f.room.players.get('p1').socket;

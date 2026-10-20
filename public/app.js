@@ -12,6 +12,7 @@ const state = { ws:null, room:null, playerId:null, sessionToken:null, isHost:fal
 let toastTimer;
 let reconnecting = false;
 let leavingRoom = false;
+let chatHeight = 280;
 
 function esc(v='') { return String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function notify(message) { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove('show'),3000); }
@@ -72,7 +73,7 @@ function handleMessage(event,data) {
   if(event==='night:info'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push({title:ROLE_INFO[data.role]?.name||'밤 정보',currentRole:data.currentRole,text:data.loneWolf?'혼자 깨어났습니다. 중앙 카드 한 장을 직접 선택해 확인하세요.':data.role==='mason'?`함께 깨어난 프리메이슨: ${data.others?.length?data.others.join(', '):'없음'}`:data.others?.length?`함께 깨어난 늑대: ${data.others.join(', ')}`:data.wolves?`늑대인간: ${data.wolves.length?data.wolves.join(', '):'없음'}`:data.currentRole?`현재 역할: ${ROLE_INFO[data.currentRole]?.name||data.currentRole}`:'확인할 정보가 없습니다.'});render();return;}
   if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();if(!data.replay)notify(data.text||data.roles?.join(' · ')||data.title);return;}
   if(event==='discussion:skip-state'){if(state.room){state.room.discussionSkip=data;updateDiscussionSkipControls();}return;}
-  if(event==='chat:message'){state.chat.push(data);state.chat=state.chat.slice(-40);if(state.room)state.room.chat=state.chat;appendChatMessage(data);return;}
+  if(event==='chat:message'){state.chat.push(data);state.chat=state.chat.slice(-200);if(state.room)state.room.chat=state.chat;appendChatMessage(data);return;}
   if(event==='game:result'){state.room.result=data;state.room.phase='result';state.prompt=null;state.resultSplashComplete=false;syncMediaToPhase();const splashId=++state.resultSplashId;render();setTimeout(()=>{if(state.resultSplashId===splashId){state.resultSplashComplete=true;render();}},3000);return;}
   if(event.startsWith('webrtc:')){handleSignal(event,data);return;}
   if(event==='game:pause-availability'){if(state.room)state.room.pauseAvailable=data.available;render();}
@@ -145,7 +146,19 @@ function privateNotes() {
 
 function chatPanel() {
   const chat=state.chat.length?state.chat:state.room.chat||[];
-  return `<section class="panel chat-panel"><div class="section-kicker">TABLE TALK</div><h2 class="section-title" style="font-size:18px">채팅</h2><div class="chat-box" id="chat-box">${privateNotes()}${chat.map(m=>`<div class="chat-msg"><strong>${esc(m.name)}</strong>${esc(m.text)}</div>`).join('')||'<div class="muted" id="chat-empty">아직 대화가 없습니다.</div>'}</div><form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" placeholder="메시지 입력 · Enter로 전송" autocomplete="off"><button class="btn" aria-label="보내기">↗</button></form></section>`;
+  return `<section class="panel chat-panel" style="--chat-height:${chatHeight}px"><div class="chat-heading"><h2>채팅</h2><label class="chat-size" for="chat-height"><span>크기</span><input id="chat-height" type="range" min="180" max="600" step="20" value="${chatHeight}" aria-label="채팅창 크기" title="오른쪽으로 움직이면 채팅창이 커집니다"></label></div><div class="chat-box" id="chat-box">${state.room.phase==='lobby'?'':privateNotes()}${chat.map(m=>`<div class="chat-msg"><strong>${esc(m.name)}</strong>${esc(m.text)}</div>`).join('')||'<div class="muted" id="chat-empty">아직 대화가 없습니다.</div>'}</div><form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" aria-label="채팅 메시지" placeholder="메시지 입력 · Enter로 전송" autocomplete="off"><button class="btn" aria-label="보내기">↗</button></form></section>`;
+}
+
+function bindChatEvents() {
+  document.querySelector('#chat-form')?.addEventListener('submit',(e)=>{e.preventDefault();const input=document.querySelector('#chat-input');const text=input.value.trim();if(text&&send('chat:send',{text}))input.value='';input.focus();});
+  document.querySelector('#chat-height')?.addEventListener('input',(e)=>{
+    const height=Number(e.target.value);if(!Number.isFinite(height))return;
+    chatHeight=Math.max(180,Math.min(600,height));
+    const box=document.querySelector('#chat-box');
+    const follow=box&&box.scrollHeight-box.scrollTop-box.clientHeight<48;
+    for(const selector of ['.chat-panel','.discussion-dock'])document.querySelector(selector)?.style.setProperty('--chat-height',`${chatHeight}px`);
+    if(follow)scrollChat();
+  });
 }
 
 function appendChatMessage(message) {
@@ -156,8 +169,10 @@ function appendChatMessage(message) {
   const name=document.createElement('strong');name.textContent=message.name;
   row.append(name,document.createTextNode(message.text));box.append(row);
   const rows=box.querySelectorAll('.chat-msg');
-  for(let i=0;i<rows.length-40;i++)rows[i].remove();
+  const oldHeight=box.scrollHeight,oldTop=box.scrollTop;
+  for(let i=0;i<rows.length-200;i++)rows[i].remove();
   if(follow)box.scrollTop=box.scrollHeight;
+  else box.scrollTop=oldTop-(oldHeight-box.scrollHeight);
 }
 
 function resultSummary(result) {
@@ -190,7 +205,7 @@ function resultPanel() {
 function discussionView(room) {
   const hasExtension=!(room.extensionUsed||[]).includes(state.playerId);
   const seconds=Math.ceil(Math.max(0,(room.timerEndsAt||state.timerNow)-state.timerNow)/1000);
-  app.innerHTML=`<div class="game-shell discussion-shell"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions">${discussionSkipMarkup(room)}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock"><div class="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
+  app.innerHTML=`<div class="game-shell discussion-shell"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions">${discussionSkipMarkup(room)}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock" style="--chat-height:${chatHeight}px"><div class="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
   bindGameEvents();bindAudio();bindVideo();bindMediaElements();scrollChat();
 }
 
@@ -214,8 +229,8 @@ function updateDiscussionSkipControls() {
 function gameView() {
   const room=state.room;if(!room)return landing();
   if(room.phase==='lobby'){
-    app.innerHTML=`<div class="game-shell"><header class="game-top"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="room-code">초대 코드 <strong>${room.code}</strong><button class="count-btn" id="copy-code" aria-label="코드 복사">⧉</button></div></header><div class="layout"><section class="panel main-panel"><div class="section-kicker">WAITING ROOM</div><h1 class="section-title">모두 모였나요?</h1><p class="section-copy">방 코드를 친구에게 공유하고, 준비가 끝나면 게임을 시작하세요.</p><div class="guide-actions"><button type="button" class="btn ghost small" id="leave-lobby" ${leavingRoom?'disabled':''}>${leavingRoom?'나가는 중…':'← 방 나가기'}</button> <a class="btn ghost small guide-link" href="guide/" target="_blank" rel="noopener noreferrer" title="새 탭에서 설명서 열기">설명서 보기</a></div>${playersCard()}</section><aside class="side-stack">${roleEditor()}<section class="panel audio-card"><div><div class="section-kicker">VOICE CHAT</div><div class="audio-state">토론 단계에서 음성을 켤 수 있습니다</div></div><span>🎙️</span></section></aside></div></div>`;
-    bindRoomEvents();bindRoleEvents();return;
+    app.innerHTML=`<div class="game-shell"><header class="game-top"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="room-code">초대 코드 <strong>${room.code}</strong><button class="count-btn" id="copy-code" aria-label="코드 복사">⧉</button></div></header><div class="layout"><section class="panel main-panel"><div class="section-kicker">WAITING ROOM</div><h1 class="section-title">모두 모였나요?</h1><p class="section-copy">방 코드를 친구에게 공유하고, 준비가 끝나면 게임을 시작하세요.</p><div class="guide-actions"><button type="button" class="btn ghost small" id="leave-lobby" ${leavingRoom?'disabled':''}>${leavingRoom?'나가는 중…':'← 방 나가기'}</button> <a class="btn ghost small guide-link" href="guide/" target="_blank" rel="noopener noreferrer" title="새 탭에서 설명서 열기">설명서 보기</a></div>${playersCard()}<div class="lobby-chat">${chatPanel()}</div></section><aside class="side-stack">${roleEditor()}<section class="panel audio-card"><div><div class="section-kicker">VOICE CHAT</div><div class="audio-state">토론 단계에서 음성을 켤 수 있습니다</div></div><span>🎙️</span></section></aside></div></div>`;
+    bindRoomEvents();bindRoleEvents();bindChatEvents();return;
   }
   const phase=room.phase;const title={role_reveal:'내 역할을 확인하세요',night:'모두 눈을 감으세요',discussion:'마을이 깨어났습니다',voting:'누구를 지목할까요?',vote_reveal:'결과 공개 준비',paused:'게임이 잠시 멈췄습니다',result:'게임 결과'}[phase]||'게임 진행 중';
   const hunterRule=room.roles.includes('hunter')?' 사냥꾼이 최다 득표로 사망하면, 사냥꾼이 지목한 사람도 함께 사망합니다.':'';
@@ -236,10 +251,15 @@ function render() {
   const draft=oldInput?.value||'', start=oldInput?.selectionStart, end=oldInput?.selectionEnd;
   const keepChatFocus=document.activeElement?.id==='chat-input';
   const notesOpen=document.querySelector('#private-notes')?.open;
+  const oldBox=document.querySelector('#chat-box');
+  const oldScroll=oldBox?.scrollTop||0;
+  const follow=oldBox&&oldBox.scrollHeight-oldScroll-oldBox.clientHeight<48;
   if(!state.room)landing();else gameView();
   const input=document.querySelector('#chat-input');
   if(input&&oldInput){input.value=draft;if(keepChatFocus){input.focus({preventScroll:true});input.setSelectionRange(start??draft.length,end??draft.length);}}
   const notes=document.querySelector('#private-notes');if(notes&&notesOpen)notes.open=true;
+  const box=document.querySelector('#chat-box');
+  if(box){if(oldBox&&!follow)box.scrollTop=oldScroll;else scrollChat();}
 }
 function bindRoomEvents() {
   document.querySelector('#leave-lobby')?.addEventListener('click',leaveLobby);
@@ -262,6 +282,7 @@ function changeRole(role,delta) {
   if(!send('roles:adjust',{role,delta})){state.rolesPending=false;render();}
 }
 function bindGameEvents() {
+  bindChatEvents();
   const room=state.room;const phase=room?.phase;const skipLabels={role_reveal:'역할 확인 마치기',night:'밤 전체 건너뛰기',voting:'AI 투표 완료하고 결과 보기',vote_reveal:'결과 바로 보기'};
   if(room?.hasTestBots&&hostView()&&skipLabels[phase]&&!document.querySelector('#skip-phase')){const button=document.createElement('button');button.type='button';button.id='skip-phase';button.className='btn ghost small';button.textContent=skipLabels[phase];document.querySelector('.discussion-top-actions,.game-top .inline-actions')?.prepend(button);}
   document.querySelector('#copy-code')?.addEventListener('click',copyCode);
@@ -279,7 +300,6 @@ function bindGameEvents() {
   document.querySelector('#submit-night')?.addEventListener('click',submitNight);
   document.querySelectorAll('[data-vote]').forEach(btn=>btn.addEventListener('click',()=>{state.selectedTarget=btn.dataset.vote;render();}));
   document.querySelector('#submit-vote')?.addEventListener('click',()=>{send('vote:cast',{targetId:state.selectedTarget});state.selectedTarget=null;notify('투표를 제출했습니다.');render();});
-  document.querySelector('#chat-form')?.addEventListener('submit',(e)=>{e.preventDefault();const input=document.querySelector('#chat-input');const text=input.value.trim();if(text&&send('chat:send',{text}))input.value='';input.focus();});
   document.querySelector('#leave-room')?.addEventListener('click',()=>{localStorage.removeItem('one-night-session');location.reload();});
 }
 function submitNight() {

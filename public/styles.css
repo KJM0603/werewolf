@@ -89,10 +89,17 @@ h1 { font-size:clamp(38px, 7vw, 66px); letter-spacing:-.065em; line-height:1.08;
 .choice-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0; }
 .choice { text-align:left; border:1px solid #393742; background:#16161c; padding:11px; border-radius:10px; font-size:12px; }
 .choice.selected { border-color:#b39cf3; background:#302a3e; }
-.chat-box { display:flex; flex-direction:column; gap:8px; max-height:280px; overflow:auto; padding:10px 2px; }
+.lobby-chat { margin-top:16px; }
+.chat-panel { height:clamp(180px,var(--chat-height,280px),70dvh); min-width:0; display:flex; flex-direction:column; padding:14px; }
+.chat-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; flex-shrink:0; }
+.chat-heading h2 { margin:0; font-size:15px; white-space:nowrap; }
+.chat-size { display:flex; align-items:center; gap:8px; color:#aaa4b7; font-size:11px; min-width:0; }
+.chat-size input { width:110px; max-width:100%; min-width:50px; accent-color:#b9a0ff; cursor:ew-resize; }
+.chat-box { display:flex; flex:1; min-height:0; flex-direction:column; gap:8px; overflow:auto; padding:10px 2px; overflow-anchor:none; }
+.chat-box > * { flex-shrink:0; }
 .chat-msg { font-size:12px; line-height:1.5; color:#c7c4ce; overflow-wrap:anywhere; }
 .chat-msg strong { color:#bfaef1; margin-right:6px; }
-.chat-form { display:flex; gap:7px; margin-top:8px; }
+.chat-form { display:flex; flex-shrink:0; gap:7px; margin-top:8px; }
 .chat-form .input { padding:10px 11px; font-size:12px; }
 .chat-form .btn { padding:10px 12px; }
 .submissions { color:#85828f; font-size:11px; margin-top:10px; }
@@ -135,10 +142,9 @@ body:has(.discussion-shell) { overflow:hidden; }
 .discussion-video-grid { width:100%; height:100%; margin:0; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); grid-auto-rows:minmax(0,1fr); align-content:stretch; }
 .discussion-video-grid.players-7,.discussion-video-grid.players-8,.discussion-video-grid.players-9,.discussion-video-grid.players-10 { grid-template-columns:repeat(5,minmax(0,1fr)); }
 .discussion-video-grid .video-tile { aspect-ratio:auto; min-height:0; border-radius:16px; }
-.discussion-dock { flex:0 0 158px; min-height:0; display:grid; grid-template-columns:minmax(0,1fr) 205px; gap:10px; }
+.discussion-dock { flex:0 1 clamp(180px,var(--chat-height,280px),65dvh); min-height:150px; display:grid; grid-template-columns:minmax(0,1fr) 205px; gap:10px; }
 .discussion-chat { min-width:0; min-height:0; }
 .discussion-chat .chat-panel { height:100%; min-height:0; display:flex; flex-direction:column; padding:10px 12px; }
-.discussion-chat .chat-panel > .section-kicker,.discussion-chat .chat-panel > .section-title { display:none; }
 .discussion-chat .chat-box { flex:1; min-height:0; max-height:none; padding:4px 2px; }
 .discussion-chat .chat-form { margin-top:6px; }
 .discussion-tools { display:flex; flex-direction:column; justify-content:center; gap:7px; min-width:0; }
@@ -173,7 +179,10 @@ body:has(.discussion-shell) { overflow:hidden; }
   .discussion-top-actions .room-code { display:none; }
   .discussion-video-wrap { overflow:auto; }
   .discussion-video-grid,.discussion-video-grid.players-7,.discussion-video-grid.players-8,.discussion-video-grid.players-9,.discussion-video-grid.players-10 { height:auto; min-height:100%; grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-rows:minmax(130px,1fr); }
-  .discussion-dock { flex-basis:172px; grid-template-columns:minmax(0,1fr) 126px; gap:7px; }
+  .discussion-dock { grid-template-columns:minmax(0,1fr) 126px; gap:7px; }
+  .discussion-chat .chat-heading { gap:6px; }
+  .discussion-chat .chat-size { gap:4px; }
+  .discussion-chat .chat-size input { width:70px; min-width:30px; }
   .discussion-chat .chat-panel { padding:8px; }
   .discussion-chat .chat-box { font-size:10px; }
   .discussion-tools { gap:6px; }

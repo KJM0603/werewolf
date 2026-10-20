@@ -106,7 +106,7 @@ function publicRoom(room) {
     discussionSkip: discussionSkipState(room),
     voteRevealReason: room.voteRevealReason,
     result: room.result,
-    chat: room.chat.slice(-40),
+    chat: room.chat.slice(-200),
   };
 }
 
@@ -629,9 +629,10 @@ function handle(ws, event, data) {
     if (!skipTestPhase(room)) return emitError(ws, '이 단계는 건너뛸 수 없습니다.');
     return;
   }
-  if (event === 'chat:send' && ['discussion', 'voting'].includes(room.phase)) {
+  if (event === 'chat:send' && ['lobby', 'discussion', 'voting'].includes(room.phase)) {
     const text = String(data.text || '').trim().slice(0, 300); if (!text) return;
     room.chat.push({ id: token(), playerId: player.id, name: player.name, text, at: Date.now() });
+    room.chat = room.chat.slice(-200);
     broadcast(room, 'chat:message', room.chat.at(-1)); return;
   }
   if (event === 'game:pause' && ws.playerId === room.hostId && room.phase !== 'lobby' && room.phase !== 'result' && room.phase !== 'paused') {
