@@ -1,0 +1,53 @@
+<!doctype html><meta charset="utf-8">
+<title>다중 참가자 미디어 검증</title>
+<style>body{font:16px system-ui;background:#15151b;color:#eee;margin:32px}button{padding:12px}pre{white-space:pre-wrap}iframe{display:none}</style>
+<h1>실제 WebRTC · 3명 양방향 음성·영상 검증</h1>
+<p>마이크와 카메라 대신 합성 음성과 캔버스 영상을 사용합니다. 실제 장치에는 접근하지 않습니다.</p>
+<button id="start">검증 시작</button><pre id="status">대기 중</pre>
+<script>
+const peers={}, ids=['A','B','C'],status=document.querySelector('#status');
+const log=text=>status.textContent+='\n'+text;
+window.record=(id,text)=>log(id+': '+text);
+window.route=(from,event,data)=>setTimeout(()=>peers[data.to].receive(event,{from,payload:data.payload}),0);
+const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+async function until(check,label){
+  const deadline=Date.now()+10000;
+  while(Date.now()<deadline){if(await check()){log('PASS '+label);return;}await wait(100);}
+  throw Error(label+' timed out');
+}
+for(const id of ids){
+  const frame=document.createElement('iframe');frame.src='/peer';
+  frame.onload=()=>{peers[id]=frame.contentWindow.peerTest;peers[id].init(id,ids);};document.body.append(frame);
+}
+async function receives(kind){
+  for(const id of ids){const counts=await peers[id].counts();
+    for(const other of ids.filter(x=>x!==id))if(!(counts[other]?.[kind]>0))return false;
+  }return true;
+}
+document.querySelector('#start').onclick=async()=>{
+  document.querySelector('#start').disabled=true;
+  try{
+    await until(()=>ids.every(id=>peers[id]),'3개 독립 참가자 준비');
+    await peers.A.enableAudio();
+    await until(async()=>Object.keys(await peers.B.counts()).length>0&&Object.keys(await peers.C.counts()).length>0,'A가 먼저 연결 시작');
+    await wait(700);
+    await peers.B.enableAudio();await peers.C.enableAudio();
+    await until(()=>receives('audio'),'뒤늦게 켠 B·C 포함 6방향 음성 패킷 수신');
+    await Promise.all(ids.map(id=>peers[id].enableVideo()));
+    await until(()=>receives('video'),'같은 연결에서 6방향 영상 프레임 디코딩');
+    for(const id of ids)log(id+' '+JSON.stringify(await peers[id].counts()));
+    await Promise.all(ids.map(id=>peers[id].stop()));
+    for(const id of ids)peers[id].init(id,ids);
+    await Promise.all(ids.map(id=>peers[id].enableAudio()));
+    await until(()=>receives('audio'),'3명 동시 시작 후 6방향 음성 수신');
+    await Promise.all(ids.map(id=>peers[id].stop()));
+    for(const id of ids)peers[id].init(id,ids);
+    for(const id of ids)peers[id].connect();
+    await peers.C.enableAudio();await wait(500);
+    await peers.B.enableAudio();await peers.A.enableAudio();
+    await until(()=>receives('audio'),'역순 C → B → A 시작 후에도 6방향 음성 수신');
+    log('ALL PASS');
+  }catch(error){log('FAIL '+error.message);for(const id of ids)log(id+' '+JSON.stringify(await peers[id].counts()));}
+  finally{await Promise.all(ids.map(id=>peers[id].stop()));document.querySelector('#start').disabled=false;}
+};
+</script>

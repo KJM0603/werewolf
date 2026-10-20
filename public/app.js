@@ -13,6 +13,8 @@ let toastTimer;
 let reconnecting = false;
 let leavingRoom = false;
 let chatHeight = 280;
+let micPending = false;
+let playbackBlocked = false;
 
 function esc(v='') { return String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function notify(message) { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove('show'),3000); }
@@ -40,7 +42,7 @@ function returnToHome() {
     privateRole:null,privateVisible:true,prompt:null,privateResults:[],selectedTarget:null,
     selectedSecond:null,selectedCenter:[],micOn:false,audioStream:null,localStream:null,
     chat:[],error:'',rolesPending:false,resultSplashComplete:true,resultSplashId:state.resultSplashId+1});
-  reconnecting=false;leavingRoom=false;
+  reconnecting=false;leavingRoom=false;playbackBlocked=false;
   render();
 }
 function leaveLobby() {
@@ -205,7 +207,7 @@ function resultPanel() {
 function discussionView(room) {
   const hasExtension=!(room.extensionUsed||[]).includes(state.playerId);
   const seconds=Math.ceil(Math.max(0,(room.timerEndsAt||state.timerNow)-state.timerNow)/1000);
-  app.innerHTML=`<div class="game-shell discussion-shell"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions">${discussionSkipMarkup(room)}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock" style="--chat-height:${chatHeight}px"><div class="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
+  app.innerHTML=`<div class="game-shell discussion-shell"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions">${discussionSkipMarkup(room)}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock" style="--chat-height:${chatHeight}px"><div class="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button type="button" class="btn ghost ${playbackBlocked?'':'hidden'}" id="play-remote-audio">상대 소리 재생</button><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
   bindGameEvents();bindAudio();bindVideo();bindMediaElements();scrollChat();
 }
 
@@ -311,14 +313,41 @@ function submitNight() {
   if(targetRole==='drunk'||targetRole==='werewolf'){if(state.selectedCenter.length!==1)return notify('중앙 카드 한 장을 선택해 주세요.');data.centerIndex=state.selectedCenter[0];}
   send('night:action',data);state.prompt=null;render();
 }
-function bindAudio() {document.querySelectorAll('#mic-toggle').forEach(btn=>btn.addEventListener('click',toggleMic));}
+function bindAudio() {
+  document.querySelectorAll('#mic-toggle').forEach(btn=>btn.addEventListener('click',toggleMic));
+  document.querySelector('#play-remote-audio')?.addEventListener('click',async()=>{
+    const videos=[...document.querySelectorAll('.remote-video')];
+    const results=await Promise.allSettled(videos.map(video=>video.play()));
+    playbackBlocked=results.some(result=>result.status==='rejected');
+    document.querySelector('#play-remote-audio')?.classList.toggle('hidden',!playbackBlocked);
+    if(playbackBlocked)notify('소리 재생이 차단되었습니다. 브라우저의 사이트 소리 설정을 확인해 주세요.');
+  });
+}
 function bindVideo() {document.querySelectorAll('#camera-toggle').forEach(btn=>btn.addEventListener('click',toggleCamera));}
 function makeLocalStream() {const tracks=[...(state.audioStream?.getAudioTracks()||[]),...(state.videoStream?.getVideoTracks()||[])];state.localStream=new MediaStream(tracks);}
 async function toggleMic() {
+  if(micPending)return;
   if(state.room?.phase!=='discussion')return notify('음성은 토론 단계에서만 사용할 수 있습니다.');
   if(state.micOn){state.micOn=false;for(const track of state.audioStream?.getAudioTracks()||[])track.enabled=false;await syncLocalMediaToPeers();render();return;}
-  try {if(!state.audioStream)state.audioStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});state.micOn=true;for(const track of state.audioStream.getAudioTracks())track.enabled=true;makeLocalStream();syncPeers(true);await syncLocalMediaToPeers();render();notify('마이크를 켰습니다.');}
-  catch {notify('마이크 권한을 사용할 수 없습니다. 채팅으로 계속 참여하실 수 있습니다.');}
+  if(!navigator.mediaDevices?.getUserMedia)return notify('이 브라우저에서는 마이크에 접근할 수 없습니다. HTTPS 주소를 Chrome 또는 Edge에서 직접 열어 주세요.');
+  const playerId=state.playerId;
+  micPending=true;
+  try {
+    if(!state.audioStream?.getAudioTracks().some(track=>track.readyState==='live')){
+      const stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+      if(state.playerId!==playerId||state.room?.phase!=='discussion'){for(const track of stream.getTracks())track.stop();return;}
+      state.audioStream=stream;
+    }
+  } catch(error) {notify(mediaInputError(error,'마이크'));return;}
+  finally {micPending=false;}
+  state.micOn=true;for(const track of state.audioStream.getAudioTracks())track.enabled=true;
+  makeLocalStream();syncPeers(true);const connected=await syncLocalMediaToPeers();render();if(connected)notify('마이크를 켰습니다.');
+}
+function mediaInputError(error,device) {
+  if(error.name==='NotAllowedError'||error.name==='SecurityError')return `${device} 접근이 차단되었습니다. 주소창의 사이트 설정과 운영체제 개인정보 설정에서 ${device} 권한을 허용해 주세요.`;
+  if(error.name==='NotFoundError')return `사용 가능한 ${device} 장치를 찾지 못했습니다. 장치 연결과 브라우저 입력 장치 설정을 확인해 주세요.`;
+  if(error.name==='NotReadableError'||error.name==='AbortError')return `${device} 장치를 열지 못했습니다. 다른 앱의 장치 사용을 종료한 뒤 다시 시도해 주세요.`;
+  return `${device}를 켜지 못했습니다 (${error.name||'알 수 없는 오류'}). 장치와 브라우저 설정을 확인해 주세요.`;
 }
 async function loadPrivateCamera() {return import('./camera-privacy.js');}
 function stopCamera() {
@@ -340,11 +369,11 @@ async function toggleCamera() {
     }});
     if(controller.signal.aborted||state.cameraController!==controller||state.room?.phase!=='discussion'){pipeline.stop();return;}
     state.cameraPipeline=pipeline;state.videoStream=pipeline.stream;state.cameraPending=false;state.cameraOn=true;
-    makeLocalStream();syncPeers(true);await syncLocalMediaToPeers();render();notify('배경을 가린 카메라를 켰습니다.');
+    makeLocalStream();syncPeers(true);const connected=await syncLocalMediaToPeers();render();if(connected)notify('배경을 가린 카메라를 켰습니다.');
   } catch(error) {
     if(state.cameraController!==controller)return;
     stopCamera();void syncLocalMediaToPeers();render();
-    notify(error.name==='NotAllowedError'?'카메라 권한을 허용해 주세요.':'배경 가림을 준비하지 못해 카메라를 켜지 않았습니다. 최신 Chrome 또는 Edge와 HTTPS 연결을 확인해 주세요.');
+    notify(['NotAllowedError','NotFoundError','NotReadableError','SecurityError'].includes(error.name)?mediaInputError(error,'카메라'):'배경 가림을 준비하지 못해 카메라를 켜지 않았습니다. 최신 Chrome 또는 Edge와 HTTPS 연결을 확인해 주세요.');
   }
 }
 function syncMediaToPhase() {
@@ -356,16 +385,24 @@ function syncMediaToPhase() {
 }
 function setPeerSenders(pc) {const senders={};for(const transceiver of pc.getTransceivers()){const kind=transceiver.receiver?.track?.kind;if(kind)senders[kind]=transceiver.sender;}pc.mediaSenders=senders;}
 async function syncLocalMediaToPeer(pc) {
+  // Remote-created transceivers default to recvonly. Reserve both directions
+  // before answering, even when this participant has not enabled a device yet.
+  for(const transceiver of pc.getTransceivers())if(!transceiver.stopped)transceiver.direction='sendrecv';
   setPeerSenders(pc);
   const audio=state.room?.phase==='discussion'&&state.micOn?state.audioStream?.getAudioTracks()[0]||null:null;
   const video=state.room?.phase==='discussion'&&state.cameraOn?state.videoStream?.getVideoTracks()[0]||null:null;
   for(const [kind,track] of [['audio',audio],['video',video]]){const sender=pc.mediaSenders[kind];if(sender&&sender.track!==track)await sender.replaceTrack(track);}
 }
-async function syncLocalMediaToPeers() {await Promise.all([...state.peers.values()].map(syncLocalMediaToPeer));}
+async function syncLocalMediaToPeers() {
+  const results=await Promise.allSettled([...state.peers.values()].map(syncLocalMediaToPeer));
+  const connected=results.every(result=>result.status==='fulfilled');
+  if(!connected)notify('장치는 켜졌지만 일부 참가자에게 전달하지 못했습니다. 미디어 연결을 확인해 주세요.');
+  return connected;
+}
 function bindMediaElements() {
   const local=document.querySelector('#video-'+CSS.escape(state.playerId||''));
   if(local){local.srcObject=state.localStream;local.classList.add('local-video');local.play().catch(()=>{});}
-  for(const [id,stream] of state.remoteStreams){const video=document.querySelector('#video-'+CSS.escape(id));if(video){video.srcObject=stream;video.classList.add('remote-video');video.muted=state.room?.phase!=='discussion';video.play().catch(()=>{});}}
+  for(const [id,stream] of state.remoteStreams){const video=document.querySelector('#video-'+CSS.escape(id));if(video){if(video.srcObject!==stream)video.srcObject=stream;video.classList.add('remote-video');video.muted=state.room?.phase!=='discussion';video.play().catch(error=>{if(error.name==='NotAllowedError'&&state.room?.phase==='discussion'){playbackBlocked=true;document.querySelector('#play-remote-audio')?.classList.remove('hidden');}});}}
   for(const tile of document.querySelectorAll('.video-tile')){const id=tile.id.slice(5);const stream=id===state.playerId?state.localStream:state.remoteStreams.get(id);const hasVideo=(stream?.getVideoTracks()||[]).some(track=>track.readyState==='live'&&track.enabled&&!track.muted);tile.classList.toggle('has-video',Boolean(hasVideo));}
 }
 
@@ -373,25 +410,48 @@ function syncPeers(force=false) {
   if(!state.room||!state.playerId)return;
   const others=state.room.players.filter(p=>p.id!==state.playerId&&p.connected&&!p.isBot);
   for(const [id,pc] of state.peers)if(!others.some(p=>p.id===id)){pc.close();state.peers.delete(id);state.remoteStreams.delete(id);}
-  if(state.micOn||state.cameraOn||force)for(const peer of others){const pc=state.peers.get(peer.id)||createPeer(peer.id,true);void syncLocalMediaToPeer(pc);}
+  if(state.room.phase==='discussion'||state.micOn||state.cameraOn||force)for(const peer of others){
+    // One offerer per pair avoids simultaneous startup creating duplicate tracks.
+    const pc=state.peers.get(peer.id)||createPeer(peer.id,state.playerId<peer.id);
+    void syncLocalMediaToPeer(pc).catch(()=>notify('참가자에게 음성·영상을 연결하지 못했습니다.'));
+  }
 }
 function createPeer(id,initiator=false) {
   if(state.peers.has(id))return state.peers.get(id);
-  const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});pc.polite=state.playerId>id;pc.makingOffer=false;pc.ignoreOffer=false;state.peers.set(id,pc);
+  const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});pc.polite=state.playerId>id;pc.makingOffer=false;pc.ignoreOffer=false;pc.settingRemoteAnswer=false;pc.pendingCandidates=[];state.peers.set(id,pc);
   if(initiator){pc.addTransceiver('audio',{direction:'sendrecv'});pc.addTransceiver('video',{direction:'sendrecv'});setPeerSenders(pc);}
   pc.onicecandidate=(e)=>{if(e.candidate)send('webrtc:ice-candidate',{to:id,payload:e.candidate});};
-  pc.ontrack=(e)=>{let stream=state.remoteStreams.get(id);if(!stream){stream=e.streams?.[0]||new MediaStream();state.remoteStreams.set(id,stream);}if(!stream.getTracks().some(track=>track.id===e.track.id)&&!e.streams?.[0])stream.addTrack(e.track);setPeerSenders(pc);const video=document.querySelector('#video-'+CSS.escape(id));if(video){video.srcObject=stream;video.classList.add('remote-video');video.muted=state.room?.phase!=='discussion';video.play().catch(()=>{});}const tile=document.querySelector(`#tile-${CSS.escape(id)}`);const updateVideo=()=>tile?.classList.toggle('has-video',stream.getVideoTracks().some(track=>track.readyState==='live'&&track.enabled&&!track.muted));e.track.addEventListener('mute',updateVideo);e.track.addEventListener('unmute',updateVideo);updateVideo();};
+  pc.ontrack=(e)=>{let stream=state.remoteStreams.get(id);if(!stream){stream=new MediaStream();state.remoteStreams.set(id,stream);}if(!stream.getTracks().some(track=>track.id===e.track.id))stream.addTrack(e.track);setPeerSenders(pc);const updateVideo=()=>bindMediaElements();e.track.addEventListener('mute',updateVideo);e.track.addEventListener('unmute',updateVideo);e.track.addEventListener('ended',updateVideo);updateVideo();};
   pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'||pc.connectionState==='disconnected')notify(`${playerName(id)}님과 미디어 연결이 끊겼습니다.`);};
-  pc.onnegotiationneeded=async()=>{try{pc.makingOffer=true;await pc.setLocalDescription();if(pc.localDescription?.type==='offer')send('webrtc:offer',{to:id,payload:pc.localDescription});}catch{notify('음성·영상 연결 협상이 실패했습니다.');}finally{pc.makingOffer=false;}};
+  pc.onnegotiationneeded=async()=>{try{pc.makingOffer=true;await syncLocalMediaToPeer(pc);await pc.setLocalDescription();if(pc.localDescription?.type==='offer')send('webrtc:offer',{to:id,payload:pc.localDescription});}catch{if(pc.connectionState!=='closed')notify('음성·영상 연결 협상이 실패했습니다.');}finally{pc.makingOffer=false;}};
   return pc;
 }
 async function handleSignal(event,data) {
+  if(!state.room?.players.some(p=>p.id===data.from&&!p.isBot))return;
   let pc=state.peers.get(data.from);if(!pc)pc=createPeer(data.from,false);
-  try {
-    if(event==='webrtc:offer') {const collision=pc.makingOffer||pc.signalingState!=='stable';pc.ignoreOffer=!pc.polite&&collision;if(pc.ignoreOffer)return;if(collision)await pc.setLocalDescription({type:'rollback'});await pc.setRemoteDescription(data.payload);setPeerSenders(pc);await syncLocalMediaToPeer(pc);await pc.setLocalDescription();send('webrtc:answer',{to:data.from,payload:pc.localDescription});}
-    else if(event==='webrtc:answer') {if(pc.signalingState==='have-local-offer')await pc.setRemoteDescription(data.payload);setPeerSenders(pc);await syncLocalMediaToPeer(pc);}
-    else if(event==='webrtc:ice-candidate'&&data.payload&&!pc.ignoreOffer)await pc.addIceCandidate(data.payload);
-  } catch {notify('음성·영상 연결에 문제가 있습니다. 마이크나 카메라를 껐다 다시 켜 주세요.');}
+  // WebSocket messages arrive in order, but their async SDP work must finish in
+  // order too. Keep early ICE until a remote description has been installed.
+  pc.signalQueue=(pc.signalQueue||Promise.resolve()).then(async()=>{
+    if(state.peers.get(data.from)!==pc||pc.connectionState==='closed')return;
+    try {
+      if(event==='webrtc:offer'||event==='webrtc:answer'){
+        const offer=event==='webrtc:offer';
+        const ready=!pc.makingOffer&&(pc.signalingState==='stable'||pc.settingRemoteAnswer);
+        pc.ignoreOffer=offer&&!pc.polite&&!ready;
+        if(pc.ignoreOffer)return;
+        pc.settingRemoteAnswer=!offer;
+        await pc.setRemoteDescription(data.payload);pc.settingRemoteAnswer=false;
+        await syncLocalMediaToPeer(pc);
+        for(const candidate of pc.pendingCandidates.splice(0))await pc.addIceCandidate(candidate);
+        if(offer){await pc.setLocalDescription();send('webrtc:answer',{to:data.from,payload:pc.localDescription});}
+      }else if(event==='webrtc:ice-candidate'&&data.payload&&!pc.ignoreOffer){
+        if(pc.remoteDescription)await pc.addIceCandidate(data.payload);
+        else pc.pendingCandidates.push(data.payload);
+      }
+    }catch{if(pc.connectionState!=='closed')notify('음성·영상 연결 협상에 실패했습니다. 사이트 권한과 별개로 네트워크 연결을 확인해 주세요.');}
+    finally{pc.settingRemoteAnswer=false;}
+  });
+  return pc.signalQueue;
 }
 globalThis.addEventListener?.('pagehide',stopCamera);
 function scrollChat() {const box=document.querySelector('#chat-box');if(box)box.scrollTop=box.scrollHeight;}
