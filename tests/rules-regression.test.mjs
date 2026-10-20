@@ -46,6 +46,43 @@ function fixture(roles, centerRoles = ['villager', 'villager', 'villager']) {
 const winner=(result,id)=>result.winners.find(p=>p.id===id).win;
 const results=(f,id)=>f.messages(id).filter(m=>m.event==='night:result');
 
+test('lobby leave removes membership and reconnect token, resizes roles, and permits creating another room',()=>{
+  const f=fixture(['villager','seer','robber']);f.room.phase='lobby';f.room.customRoles=true;
+  const ws=f.room.players.get('p1').socket;
+  f.handle(ws,'room:leave',{});
+  assert.equal(f.room.players.has('p1'),false);
+  assert.equal(f.room.hostId,'p0');
+  assert.equal(f.room.roles.length,5);assert.equal(f.room.customRoles,false);
+  assert.equal(ws.room,null);assert.equal(ws.playerId,null);
+  assert.equal(ws.messages.at(-1).event,'room:left');
+  assert.equal(f.reconnect('p1').at(-1).event,'error');
+  f.handle(ws,'room:create',{name:'New host'});
+  assert.equal(ws.messages.at(-1).data.hostId,ws.playerId);
+  assert.notEqual(ws.room,'AUDIT');
+});
+test('host leave transfers control to a connected human ahead of bots or disconnected humans',()=>{
+  const f=fixture(Array(4).fill('villager'));f.room.phase='lobby';
+  f.room.players.get('p1').isBot=true;f.room.players.get('p2').connected=false;
+  f.handle(f.room.players.get('p0').socket,'room:leave',{});
+  assert.equal(f.room.hostId,'p3');
+  f.handle(f.room.players.get('p3').socket,'room:leave',{});
+  assert.equal(f.room.hostId,'p2');
+});
+test('last human leaving deletes the room even when bots remain',()=>{
+  const f=fixture(['villager','seer']);f.room.phase='lobby';f.room.players.get('p1').isBot=true;
+  f.handle(f.room.players.get('p0').socket,'room:leave',{});
+  assert.equal(f.rooms.has(f.room.code),false);
+});
+test('leave rejects an active game or obsolete socket without removing players',()=>{
+  const f=fixture(['villager','seer','robber']);
+  const ws=f.room.players.get('p0').socket;
+  f.handle(ws,'room:leave',{});
+  assert.equal(ws.messages.at(-1).event,'error');assert.equal(f.room.players.size,3);
+  f.room.phase='lobby';f.room.players.get('p0').socket={};
+  f.handle(ws,'room:leave',{});
+  assert.equal(ws.messages.at(-1).event,'error');assert.equal(f.room.players.size,3);
+});
+
 for (const n of [3,4,5,6,7,8,9,10]) test(`discussion requires a strict majority of ${n} humans`,()=>{
   const f=fixture(Array(n).fill('villager'));f.startDiscussion(f.room);
   const required=Math.floor(n/2)+1, timer=f.room.timer;

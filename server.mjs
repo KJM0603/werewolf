@@ -542,6 +542,28 @@ function handle(ws, event, data) {
   if (!room || !ws.playerId || !room.players.has(ws.playerId)) return emitError(ws, '먼저 방에 입장해 주세요.');
   const player = room.players.get(ws.playerId);
 
+  if (event === 'room:leave') {
+    if (room.phase !== 'lobby') return emitError(ws, '대기실에서만 방을 나갈 수 있습니다.');
+    if (player.socket !== ws || ws.closed) return emitError(ws, '현재 연결에서 다시 시도해 주세요.');
+    room.players.delete(player.id);
+    ws.room = null; ws.playerId = null;
+    player.socket = null; player.token = null;
+    const humans = [...room.players.values()].filter((p) => !p.isBot);
+    if (!humans.length) {
+      clearTimeout(room.timer);
+      rooms.delete(room.code);
+    } else {
+      const hostLeft = room.hostId === player.id;
+      if (hostLeft) room.hostId = (humans.find((p) => p.connected) || humans[0]).id;
+      room.roles = defaultRoles(room.players.size);
+      room.customRoles = false;
+      broadcast(room, 'room:state', publicRoom(room));
+      broadcast(room, 'room:notice', { message: `${player.name}님이 나갔습니다. 인원에 맞춰 권장 역할로 변경했습니다.${hostLeft ? ` 새 방장은 ${room.players.get(room.hostId).name}님입니다.` : ''}` });
+    }
+    send(ws, 'room:left', {});
+    return;
+  }
+
   if (event.startsWith('webrtc:')) {
     const recipient = room.players.get(data.to);
     if (recipient?.socket) send(recipient.socket, event, { from: ws.playerId, payload: data.payload });

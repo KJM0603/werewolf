@@ -11,6 +11,7 @@ const toastEl = document.querySelector('#toast');
 const state = { ws:null, room:null, playerId:null, sessionToken:null, isHost:false, privateRole:null, privateVisible:true, prompt:null, privateResults:[], selectedTarget:null, selectedSecond:null, selectedCenter:[], micOn:false, cameraOn:false, cameraPending:false, cameraController:null, cameraPipeline:null, localStream:null, audioStream:null, videoStream:null, peers:new Map(), remoteStreams:new Map(), chat:[], error:'', timerNow:Date.now(), rolesPending:false, resultSplashComplete:true, resultSplashId:0 };
 let toastTimer;
 let reconnecting = false;
+let leavingRoom = false;
 
 function esc(v='') { return String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function notify(message) { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove('show'),3000); }
@@ -19,15 +20,40 @@ function connect(onReady) {
   if (state.ws && state.ws.readyState === WebSocket.OPEN) return onReady?.();
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const ws = new WebSocket(`${scheme}//${location.host}/signal`); state.ws=ws;
-  ws.addEventListener('open',()=>{onReady?.();});
-  ws.addEventListener('message',(e)=>{try { const msg=JSON.parse(e.data); handleMessage(msg.event,msg.data||{}); } catch { notify('서버 응답을 읽지 못했습니다.'); }});
-  ws.addEventListener('close',()=>{stopCamera();for(const pc of state.peers.values())pc.close();state.peers.clear(); if(state.room){setTimeout(()=>{if(!state.ws||state.ws.readyState===WebSocket.CLOSED){connect(()=>rejoin());}},1500);}});
-  ws.addEventListener('error',()=>notify('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.'));
+  ws.addEventListener('open',()=>{if(state.ws===ws)onReady?.();});
+  ws.addEventListener('message',(e)=>{if(state.ws!==ws)return;try { const msg=JSON.parse(e.data); handleMessage(msg.event,msg.data||{}); } catch { notify('서버 응답을 읽지 못했습니다.'); }});
+  ws.addEventListener('close',()=>{if(state.ws!==ws)return;if(leavingRoom)return returnToHome();stopCamera();for(const pc of state.peers.values())pc.close();state.peers.clear(); if(state.room){setTimeout(()=>{if(state.room&&state.ws===ws&&ws.readyState===WebSocket.CLOSED){connect(()=>rejoin());}},1500);}});
+  ws.addEventListener('error',()=>{if(state.ws===ws)notify('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.');});
 }
 function send(event,data={}) { if (!state.ws || state.ws.readyState!==WebSocket.OPEN) { notify('서버와 연결이 끊겼습니다. 잠시 후 다시 시도해 주세요.'); return false; } state.ws.send(JSON.stringify({event,data})); return true; }
 function rejoin() { const saved=JSON.parse(localStorage.getItem('one-night-session')||'null'); if(saved){reconnecting=true;send('room:reconnect',saved);} }
+function returnToHome() {
+  localStorage.removeItem('one-night-session');
+  const ws=state.ws;state.ws=null;
+  ws?.close();
+  stopCamera();
+  for(const track of state.audioStream?.getTracks()||[])track.stop();
+  for(const pc of state.peers.values())pc.close();
+  state.peers.clear();state.remoteStreams.clear();
+  Object.assign(state,{room:null,playerId:null,sessionToken:null,isHost:false,
+    privateRole:null,privateVisible:true,prompt:null,privateResults:[],selectedTarget:null,
+    selectedSecond:null,selectedCenter:[],micOn:false,audioStream:null,localStream:null,
+    chat:[],error:'',rolesPending:false,resultSplashComplete:true,resultSplashId:state.resultSplashId+1});
+  reconnecting=false;leavingRoom=false;
+  render();
+}
+function leaveLobby() {
+  if(state.room?.phase!=='lobby'||leavingRoom)return;
+  if(!state.ws||state.ws.readyState!==WebSocket.OPEN)return returnToHome();
+  leavingRoom=true;
+  const button=document.querySelector('#leave-lobby');
+  if(button){button.disabled=true;button.textContent='나가는 중…';}
+  if(!send('room:leave'))returnToHome();
+}
 function handleMessage(event,data) {
-  if(event==='error'){state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
+  if(event==='room:left'){returnToHome();return;}
+  if(event==='room:notice'){notify(data.message);return;}
+  if(event==='error'){leavingRoom=false;state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
   if(event==='room:joined') { state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncPeers();render();return; }
   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
     const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
@@ -188,7 +214,7 @@ function updateDiscussionSkipControls() {
 function gameView() {
   const room=state.room;if(!room)return landing();
   if(room.phase==='lobby'){
-    app.innerHTML=`<div class="game-shell"><header class="game-top"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="room-code">초대 코드 <strong>${room.code}</strong><button class="count-btn" id="copy-code" aria-label="코드 복사">⧉</button></div></header><div class="layout"><section class="panel main-panel"><div class="section-kicker">WAITING ROOM</div><h1 class="section-title">모두 모였나요?</h1><p class="section-copy">방 코드를 친구에게 공유하고, 준비가 끝나면 게임을 시작하세요.</p><div class="guide-actions"><a class="btn ghost small guide-link" href="guide/" target="_blank" rel="noopener noreferrer" title="새 탭에서 설명서 열기">설명서 보기</a></div>${playersCard()}</section><aside class="side-stack">${roleEditor()}<section class="panel audio-card"><div><div class="section-kicker">VOICE CHAT</div><div class="audio-state">토론 단계에서 음성을 켤 수 있습니다</div></div><span>🎙️</span></section></aside></div></div>`;
+    app.innerHTML=`<div class="game-shell"><header class="game-top"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="room-code">초대 코드 <strong>${room.code}</strong><button class="count-btn" id="copy-code" aria-label="코드 복사">⧉</button></div></header><div class="layout"><section class="panel main-panel"><div class="section-kicker">WAITING ROOM</div><h1 class="section-title">모두 모였나요?</h1><p class="section-copy">방 코드를 친구에게 공유하고, 준비가 끝나면 게임을 시작하세요.</p><div class="guide-actions"><button type="button" class="btn ghost small" id="leave-lobby" ${leavingRoom?'disabled':''}>${leavingRoom?'나가는 중…':'← 방 나가기'}</button> <a class="btn ghost small guide-link" href="guide/" target="_blank" rel="noopener noreferrer" title="새 탭에서 설명서 열기">설명서 보기</a></div>${playersCard()}</section><aside class="side-stack">${roleEditor()}<section class="panel audio-card"><div><div class="section-kicker">VOICE CHAT</div><div class="audio-state">토론 단계에서 음성을 켤 수 있습니다</div></div><span>🎙️</span></section></aside></div></div>`;
     bindRoomEvents();bindRoleEvents();return;
   }
   const phase=room.phase;const title={role_reveal:'내 역할을 확인하세요',night:'모두 눈을 감으세요',discussion:'마을이 깨어났습니다',voting:'누구를 지목할까요?',vote_reveal:'결과 공개 준비',paused:'게임이 잠시 멈췄습니다',result:'게임 결과'}[phase]||'게임 진행 중';
@@ -216,6 +242,7 @@ function render() {
   const notes=document.querySelector('#private-notes');if(notes&&notesOpen)notes.open=true;
 }
 function bindRoomEvents() {
+  document.querySelector('#leave-lobby')?.addEventListener('click',leaveLobby);
   document.querySelector('#copy-code')?.addEventListener('click',copyCode);
   document.querySelector('#ready-toggle')?.addEventListener('click',()=>{const p=state.room.players.find(p=>p.id===state.playerId);send('player:ready',{ready:!p.ready});});
   document.querySelector('#add-ai')?.addEventListener('click',(e)=>{const count=Number(document.querySelector('#bot-count').value);e.currentTarget.disabled=true;e.currentTarget.textContent='AI 추가 중…';if(!send('room:bots:add',{count})){e.currentTarget.disabled=false;e.currentTarget.textContent='AI 추가';}});
