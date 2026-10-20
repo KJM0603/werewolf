@@ -8,7 +8,7 @@ const ROLE_MAX = {werewolf:2, seer:1, robber:1, troublemaker:1, drunk:1, insomni
 const ROLE_STEP = {mason:2};
 const app = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
-const state = { ws:null, room:null, playerId:null, sessionToken:null, isHost:false, privateRole:null, privateVisible:true, prompt:null, privateResults:[], selectedTarget:null, selectedSecond:null, selectedCenter:[], micOn:false, cameraOn:false, localStream:null, audioStream:null, videoStream:null, peers:new Map(), remoteStreams:new Map(), chat:[], error:'', timerNow:Date.now(), rolesPending:false, resultSplashComplete:true, resultSplashId:0 };
+const state = { ws:null, room:null, playerId:null, sessionToken:null, isHost:false, privateRole:null, privateVisible:true, prompt:null, privateResults:[], selectedTarget:null, selectedSecond:null, selectedCenter:[], micOn:false, cameraOn:false, cameraPending:false, cameraController:null, cameraPipeline:null, localStream:null, audioStream:null, videoStream:null, peers:new Map(), remoteStreams:new Map(), chat:[], error:'', timerNow:Date.now(), rolesPending:false, resultSplashComplete:true, resultSplashId:0 };
 let toastTimer;
 let reconnecting = false;
 
@@ -21,7 +21,7 @@ function connect(onReady) {
   const ws = new WebSocket(`${scheme}//${location.host}/signal`); state.ws=ws;
   ws.addEventListener('open',()=>{onReady?.();});
   ws.addEventListener('message',(e)=>{try { const msg=JSON.parse(e.data); handleMessage(msg.event,msg.data||{}); } catch { notify('서버 응답을 읽지 못했습니다.'); }});
-  ws.addEventListener('close',()=>{for(const pc of state.peers.values())pc.close();state.peers.clear(); if(state.room){setTimeout(()=>{if(!state.ws||state.ws.readyState===WebSocket.CLOSED){connect(()=>rejoin());}},1500);}});
+  ws.addEventListener('close',()=>{stopCamera();for(const pc of state.peers.values())pc.close();state.peers.clear(); if(state.room){setTimeout(()=>{if(!state.ws||state.ws.readyState===WebSocket.CLOSED){connect(()=>rejoin());}},1500);}});
   ws.addEventListener('error',()=>notify('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.'));
 }
 function send(event,data={}) { if (!state.ws || state.ws.readyState!==WebSocket.OPEN) { notify('서버와 연결이 끊겼습니다. 잠시 후 다시 시도해 주세요.'); return false; } state.ws.send(JSON.stringify({event,data})); return true; }
@@ -46,7 +46,7 @@ function handleMessage(event,data) {
   if(event==='night:info'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push({title:ROLE_INFO[data.role]?.name||'밤 정보',currentRole:data.currentRole,text:data.loneWolf?'혼자 깨어났습니다. 중앙 카드 한 장을 직접 선택해 확인하세요.':data.role==='mason'?`함께 깨어난 프리메이슨: ${data.others?.length?data.others.join(', '):'없음'}`:data.others?.length?`함께 깨어난 늑대: ${data.others.join(', ')}`:data.wolves?`늑대인간: ${data.wolves.length?data.wolves.join(', '):'없음'}`:data.currentRole?`현재 역할: ${ROLE_INFO[data.currentRole]?.name||data.currentRole}`:'확인할 정보가 없습니다.'});render();return;}
   if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();if(!data.replay)notify(data.text||data.roles?.join(' · ')||data.title);return;}
   if(event==='chat:message'){state.chat.push(data);state.chat=state.chat.slice(-40);if(state.room)state.room.chat=state.chat;appendChatMessage(data);return;}
-  if(event==='game:result'){state.room.result=data;state.room.phase='result';state.prompt=null;state.resultSplashComplete=false;const splashId=++state.resultSplashId;render();setTimeout(()=>{if(state.resultSplashId===splashId){state.resultSplashComplete=true;render();}},3000);return;}
+  if(event==='game:result'){state.room.result=data;state.room.phase='result';state.prompt=null;state.resultSplashComplete=false;syncMediaToPhase();const splashId=++state.resultSplashId;render();setTimeout(()=>{if(state.resultSplashId===splashId){state.resultSplashComplete=true;render();}},3000);return;}
   if(event.startsWith('webrtc:')){handleSignal(event,data);return;}
   if(event==='game:pause-availability'){if(state.room)state.room.pauseAvailable=data.available;render();}
 }
@@ -163,7 +163,7 @@ function resultPanel() {
 function discussionView(room) {
   const hasExtension=!(room.extensionUsed||[]).includes(state.playerId);
   const seconds=Math.ceil(Math.max(0,(room.timerEndsAt||state.timerNow)-state.timerNow)/1000);
-  app.innerHTML=`<div class="game-shell discussion-shell"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions">${room.hasTestBots&&hostView()?'<button class="btn ghost small" id="skip-phase">토론 건너뛰기</button>':''}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock"><div class="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraOn?'카메라 끄기':'카메라 켜기'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraOn?'카메라 켜짐':'카메라 꺼짐'}</small></div></footer></main></div>`;
+  app.innerHTML=`<div class="game-shell discussion-shell"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions">${room.hasTestBots&&hostView()?'<button class="btn ghost small" id="skip-phase">토론 건너뛰기</button>':''}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock"><div class="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
   bindGameEvents();bindAudio();bindVideo();bindMediaElements();scrollChat();
 }
 
@@ -254,16 +254,37 @@ async function toggleMic() {
   try {if(!state.audioStream)state.audioStream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});state.micOn=true;for(const track of state.audioStream.getAudioTracks())track.enabled=true;makeLocalStream();syncPeers(true);await syncLocalMediaToPeers();render();notify('마이크를 켰습니다.');}
   catch {notify('마이크 권한을 사용할 수 없습니다. 채팅으로 계속 참여하실 수 있습니다.');}
 }
+async function loadPrivateCamera() {return import('./camera-privacy.js');}
+function stopCamera() {
+  state.cameraController?.abort();state.cameraController=null;
+  state.cameraPipeline?.stop();state.cameraPipeline=null;
+  for(const track of state.videoStream?.getTracks()||[])track.stop();
+  state.videoStream=null;state.cameraOn=false;state.cameraPending=false;makeLocalStream();
+}
 async function toggleCamera() {
   if(state.room?.phase!=='discussion')return notify('카메라는 토론 단계에서만 사용할 수 있습니다.');
-  if(state.cameraOn){state.cameraOn=false;for(const track of state.videoStream?.getTracks()||[])track.stop();state.videoStream=null;makeLocalStream();await syncLocalMediaToPeers();render();notify('카메라를 껐습니다.');return;}
-  try {state.videoStream=await navigator.mediaDevices.getUserMedia({audio:false,video:{width:{ideal:640},height:{ideal:480},facingMode:'user'}});state.cameraOn=true;makeLocalStream();syncPeers(true);await syncLocalMediaToPeers();render();notify('카메라를 켰습니다.');}
-  catch {state.cameraOn=false;state.videoStream=null;notify('카메라 권한을 허용해 주세요. 브라우저에서 카메라 사용은 HTTPS 또는 localhost 연결이 필요합니다.');}
+  if(state.cameraOn||state.cameraPending){stopCamera();await syncLocalMediaToPeers();render();notify('카메라를 껐습니다.');return;}
+  const controller=new AbortController();state.cameraController=controller;state.cameraPending=true;render();
+  try {
+    const {createPrivateCamera}=await loadPrivateCamera();
+    if(controller.signal.aborted)return;
+    const pipeline=await createPrivateCamera({signal:controller.signal,onError:()=>{
+      if(state.cameraController!==controller)return;
+      stopCamera();void syncLocalMediaToPeers();render();notify('배경 가림이 중단되어 카메라를 껐습니다. 다시 켜 주세요.');
+    }});
+    if(controller.signal.aborted||state.cameraController!==controller||state.room?.phase!=='discussion'){pipeline.stop();return;}
+    state.cameraPipeline=pipeline;state.videoStream=pipeline.stream;state.cameraPending=false;state.cameraOn=true;
+    makeLocalStream();syncPeers(true);await syncLocalMediaToPeers();render();notify('배경을 가린 카메라를 켰습니다.');
+  } catch(error) {
+    if(state.cameraController!==controller)return;
+    stopCamera();void syncLocalMediaToPeers();render();
+    notify(error.name==='NotAllowedError'?'카메라 권한을 허용해 주세요.':'배경 가림을 준비하지 못해 카메라를 켜지 않았습니다. 최신 Chrome 또는 Edge와 HTTPS 연결을 확인해 주세요.');
+  }
 }
 function syncMediaToPhase() {
   const active=state.room?.phase==='discussion';
   for(const track of state.audioStream?.getAudioTracks()||[])track.enabled=active&&state.micOn;
-  if(!active&&state.videoStream){for(const track of state.videoStream.getTracks())track.stop();state.videoStream=null;state.cameraOn=false;makeLocalStream();}
+  if(!active&&(state.videoStream||state.cameraPending))stopCamera();
   for(const video of document.querySelectorAll('.remote-video'))video.muted=!active;
   void syncLocalMediaToPeers();
 }
@@ -306,6 +327,7 @@ async function handleSignal(event,data) {
     else if(event==='webrtc:ice-candidate'&&data.payload&&!pc.ignoreOffer)await pc.addIceCandidate(data.payload);
   } catch {notify('음성·영상 연결에 문제가 있습니다. 마이크나 카메라를 껐다 다시 켜 주세요.');}
 }
+globalThis.addEventListener?.('pagehide',stopCamera);
 function scrollChat() {const box=document.querySelector('#chat-box');if(box)box.scrollTop=box.scrollHeight;}
 setInterval(()=>{state.timerNow=Date.now();const room=state.room;if(room?.timerEndsAt){const ms=Math.max(0,room.timerEndsAt-state.timerNow);const s=Math.ceil(ms/1000);const node=document.querySelector('#timer');if(node)node.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}},500);
 render();

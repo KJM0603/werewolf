@@ -28,6 +28,15 @@ npm start
 
 규칙 및 화면 회귀 테스트는 `npm test`로 실행합니다.
 
+### 카메라 배경 가림
+
+- 카메라를 켜면 인물 영역만 남기고 배경을 어두운 단색으로 가립니다. 내 화면과 상대방 화면에 같은 처리 영상이 표시됩니다.
+- 원본 카메라 트랙은 상대방에게 연결하지 않습니다. 인물 분리는 브라우저 안의 별도 작업 스레드에서 처리하며, 모델과 실행 파일도 게임 서버에서 제공합니다.
+- 첫 처리 영상이 준비된 뒤에만 카메라를 켭니다. 준비 실패·처리 중단·카메라 해제·토론 종료 시에는 카메라를 끄며 원본 영상으로 전환하지 않습니다.
+- 최신 Chrome/Edge의 HTTPS 또는 localhost 환경을 권장합니다. Worker, OffscreenCanvas, canvas.captureStream을 지원하지 않는 환경에서는 카메라를 켜지 않습니다.
+- 자동 인물 분리는 조명과 움직임에 따라 경계가 부정확할 수 있습니다. 민감한 물건은 몸 가까이에 두지 않는 편이 안전합니다.
+- 공개 인물 사진을 가상 카메라로 쓰는 실제 모델/WebRTC 검증 화면은 `tests/browser/camera.html`입니다. `node tests/browser/serve-camera.mjs <예제사진.jpg>`를 실행한 후 `http://localhost:4186`에서 검증할 수 있습니다. 검증에는 [MediaPipe 공개 예제 사진](https://storage.googleapis.com/mediapipe-assets/portrait.jpg)을 사용했습니다.
+
 ## 현재 범위와 제한
 
 - 방 상태는 서버 메모리에 저장됩니다. 서버 프로세스가 재시작되면 진행 중인 방은 종료됩니다.

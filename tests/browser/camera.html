@@ -1,0 +1,71 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>카메라 배경 가림 검증</title>
+<style>
+body{background:#111216;color:#eee;font:16px system-ui;margin:30px}
+section{display:flex;gap:20px}figure{margin:0;flex:1;min-width:0}
+canvas,video{width:100%;background:#202530}button{padding:14px;margin:20px 10px 20px 0}
+pre{white-space:pre-wrap}
+</style>
+<h1>카메라 배경 가림 · 실제 모델 / WebRTC 검증</h1>
+<p>공개 예제 사진을 가상 카메라로 사용합니다. 실제 카메라는 사용하지 않습니다.</p>
+<button id="start">검증 시작</button><button id="empty" disabled>사람 없는 배경 검사</button>
+<button id="stop" disabled>카메라 종료 검사</button>
+<section>
+<figure><figcaption>가상 카메라 입력</figcaption><canvas id="source" width="640" height="480"></canvas></figure>
+<figure><figcaption>전송 영상 · 배경 가림</figcaption><video id="local" autoplay muted playsinline></video></figure>
+<figure><figcaption>상대방 수신 영상 · WebRTC</figcaption><video id="remote" autoplay muted playsinline></video></figure>
+</section>
+<pre id="status">대기 중</pre>
+<script type="module">
+import { createPrivateCamera } from '/camera-privacy.js';
+const status=document.querySelector('#status');
+const log=text=>status.textContent+='\n'+text;
+const source=document.querySelector('#source'), ctx=source.getContext('2d');
+const image=new Image();image.src='/portrait.jpg';await image.decode();
+function draw(person=true) {
+  ctx.fillStyle='#ee2211';ctx.fillRect(0,0,640,480);
+  ctx.fillStyle='#fff';ctx.font='bold 22px sans-serif';ctx.fillText('PRIVATE ROOM / 123456',8,28);
+  if(person)ctx.drawImage(image,110,40,420,420);
+}
+draw();
+let pipeline,raw,timer,a,b;
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+function assert(ok,text){if(!ok)throw new Error(text);log('PASS '+text);}
+document.querySelector('#start').onclick=async()=>{
+ try {
+  document.querySelector('#start').disabled=true;
+  log('로컬 모델 준비 중…');
+  let person=true;timer=setInterval(()=>draw(person),67);
+  raw=source.captureStream(15);
+  pipeline=await createPrivateCamera({getUserMedia:async()=>raw,onError:e=>log('ERROR '+e.message)});
+  const local=document.querySelector('#local');local.srcObject=pipeline.stream;await local.play();
+  assert(pipeline.stream.getVideoTracks()[0]!==raw.getVideoTracks()[0],'원본 트랙과 전송 트랙 분리');
+  a=new RTCPeerConnection({iceServers:[]});b=new RTCPeerConnection({iceServers:[]});
+  a.onicecandidate=e=>{if(e.candidate)b.addIceCandidate(e.candidate).catch(()=>{});};
+  b.onicecandidate=e=>{if(e.candidate)a.addIceCandidate(e.candidate).catch(()=>{});};
+  b.ontrack=e=>document.querySelector('#remote').srcObject=e.streams[0];
+  a.addTrack(pipeline.stream.getVideoTracks()[0],pipeline.stream);
+  await a.setLocalDescription(await a.createOffer());await b.setRemoteDescription(a.localDescription);
+  await b.setLocalDescription(await b.createAnswer());await a.setRemoteDescription(b.localDescription);
+  for(let i=0;i<50&&!document.querySelector('#remote').videoWidth;i++)await wait(100);
+  assert(document.querySelector('#remote').videoWidth>0,'상대방 영상 수신');
+  log('인물 윤곽과 배경 가림을 화면에서 확인하세요.');
+  document.querySelector('#empty').disabled=false;
+  document.querySelector('#stop').disabled=false;
+  document.querySelector('#empty').onclick=async()=>{
+    person=false;await wait(1500);
+    const check=document.createElement('canvas');check.width=640;check.height=480;
+    const c=check.getContext('2d');c.drawImage(local,0,0,640,480);
+    const pixels=c.getImageData(0,0,640,480).data;let covered=0;
+    for(let i=0;i<pixels.length;i+=4)if(Math.abs(pixels[i]-32)<5&&Math.abs(pixels[i+1]-37)<5&&Math.abs(pixels[i+2]-48)<5)covered++;
+    assert(covered/(640*480)>0.99,'사람이 없으면 전체 배경 가림 ('+(covered/(640*480)*100).toFixed(2)+'%)');
+  };
+  document.querySelector('#stop').onclick=()=>{
+    pipeline.stop();clearInterval(timer);a.close();b.close();
+    assert(raw.getTracks().every(t=>t.readyState==='ended'),'원본 카메라 트랙 종료');
+    assert(pipeline.stream.getTracks().every(t=>t.readyState==='ended'),'전송 트랙 종료');
+  };
+ }catch(e){log('FAIL '+(e.stack||String(e)));clearInterval(timer);pipeline?.stop();}
+};
+</script>
