@@ -41,7 +41,7 @@ function fixture(roles, centerRoles = ['villager', 'villager', 'villager']) {
   const action=(role,id,data)=>{ api.beginAction(room,role);api.applyNightAction(room,id,data); };
   const vote=targets=>{room.votes=new Map(targets.map((id,i)=>[`p${i}`,id]));api.resolveVotes(room);return room.result;};
   const reconnect=id=>{const ws=socket(null);api.handle(ws,'room:reconnect',{code:room.code,token:`token-${id}`});return ws.messages;};
-  return {...api,room,messages,action,vote,reconnect};
+  return {...api,room,messages,action,vote,reconnect,context};
 }
 const winner=(result,id)=>result.winners.find(p=>p.id===id).win;
 const results=(f,id)=>f.messages(id).filter(m=>m.event==='night:result');
@@ -248,4 +248,58 @@ test('copied minion gets no duplicate information during normal minion phase',()
   f.beginAction(f.room,'minion');
   assert.equal(f.messages('p0').filter(m=>m.event==='night:info').length,1);
   assert.equal(f.messages('p1').filter(m=>m.event==='night:info').length,1);
+});
+test('host can add multiple bot batches up to ten players with distinct names and N+3 cards',()=>{
+  const f=fixture(['villager']);f.room.phase='lobby';f.room.roles=f.defaultRoles(1);
+  const host=f.room.players.get('p0').socket;
+  for(const count of [2,3,4])f.handle(host,'room:bots:add',{count});
+  assert.equal(f.room.players.size,10);assert.equal(f.room.roles.length,13);
+  assert.equal(new Set([...f.room.players.values()].map(p=>p.name)).size,10);
+  const cards=JSON.stringify(f.room.roles);
+  f.handle(host,'room:bots:add',{count:1});
+  assert.equal(f.room.players.size,10);assert.equal(JSON.stringify(f.room.roles),cards);
+});
+test('bot addition rejects invalid counts, nonhosts and started games without partial changes',()=>{
+  const f=fixture(['villager','villager','villager']);f.room.phase='lobby';
+  const host=f.room.players.get('p0').socket;
+  for(const count of [0,-1,1.5,'2',8])f.handle(host,'room:bots:add',{count});
+  f.handle(f.room.players.get('p1').socket,'room:bots:add',{count:1});
+  assert.equal(f.room.players.size,3);
+  f.room.phase='night';f.handle(host,'room:bots:add',{count:1});
+  assert.equal(f.room.players.size,3);
+});
+test('night skip completes bot copied actions and arrives at discussion in one request',()=>{
+  const f=fixture(['robber','doppelganger','werewolf'],['seer','drunk','troublemaker']);
+  f.room.hasTestBots=true;f.room.players.get('p1').isBot=true;
+  vm.runInContext('Math.random = () => 0;',f.context);
+  f.beginNight(f.room);
+  const original=f.room.cards.find(c=>c.ownerId==='p1');
+  const request={phase:'night',nightTurn:'doppelganger'};
+  f.handle(f.room.players.get('p0').socket,'game:skip-phase',request);
+  assert.equal(f.room.phase,'discussion');
+  assert.equal(f.room.copyRoles.get('p1'),'robber');
+  assert.equal(results(f,'p1').length,2);
+  assert.equal(original.ownerId,'p0');
+  f.handle(f.room.players.get('p0').socket,'game:skip-phase',request);
+  assert.equal(f.room.phase,'discussion','Repeated stale click must not skip discussion too');
+});
+test('voting skip preserves human votes, completes bot votes and leaves only humans unvoted',()=>{
+  const f=fixture(['villager','werewolf','seer','robber']);
+  f.room.hasTestBots=true;f.room.players.get('p1').isBot=true;f.room.players.get('p2').isBot=true;
+  f.enterVoting(f.room);f.room.votes.set('p0','p1');
+  f.handle(f.room.players.get('p0').socket,'game:skip-phase',{phase:'voting',nightTurn:null});
+  assert.equal(f.room.phase,'result');assert.equal(f.room.votes.get('p0'),'p1');
+  for(const id of ['p1','p2'])assert.ok(f.room.votes.get(id)&&f.room.votes.get(id)!==id);
+  assert.equal(f.room.votes.get('p3'),null);
+});
+test('skip is unavailable without bots, to nonhosts, and during pause',()=>{
+  const f=fixture(['villager','werewolf','seer']);f.beginNight(f.room);
+  f.handle(f.room.players.get('p0').socket,'game:skip-phase',{});
+  assert.equal(f.room.phase,'night');
+  f.room.hasTestBots=true;
+  f.handle(f.room.players.get('p1').socket,'game:skip-phase',{});
+  assert.equal(f.room.phase,'night');
+  f.handle(f.room.players.get('p0').socket,'game:pause',{});
+  f.handle(f.room.players.get('p0').socket,'game:skip-phase',{});
+  assert.equal(f.room.phase,'paused');
 });

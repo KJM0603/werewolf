@@ -182,18 +182,24 @@ function botNightAction(room, playerId) {
 
 function scheduleBotNightAction(room, playerId) {
   if (!room.players.get(playerId)?.isBot) return;
+  const scheduledPrompt = room.actionPrompt;
   setTimeout(() => {
-    if (room.phase !== 'night' || room.actionPrompt?.playerId !== playerId) return;
+    if (room.phase !== 'night' || room.actionPrompt !== scheduledPrompt || room.actionPrompt?.playerId !== playerId) return;
     applyNightAction(room, playerId, botNightAction(room, playerId));
   }, 900);
+}
+
+function castBotVote(room, bot) {
+  if (room.phase !== 'voting' || room.votes.has(bot.id)) return;
+  const wolfTeam = new Set([...room.players.keys()].filter((id) => ['werewolf', 'minion'].includes(room.startRoles.get(id))));
+  const candidates = [...room.players.keys()].filter((id) => id !== bot.id && (!wolfTeam.has(bot.id) || !wolfTeam.has(id)));
+  room.votes.set(bot.id, candidates.length ? randomChoice(candidates) : null);
 }
 
 function scheduleBotVotes(room) {
   [...room.players.values()].filter((player) => player.isBot).forEach((bot, index) => setTimeout(() => {
     if (room.phase !== 'voting' || room.votes.has(bot.id)) return;
-    const wolfTeam = new Set([...room.players.keys()].filter((id) => ['werewolf', 'minion'].includes(room.startRoles.get(id))));
-    const candidates = [...room.players.keys()].filter((id) => id !== bot.id && (!wolfTeam.has(bot.id) || !wolfTeam.has(id)));
-    room.votes.set(bot.id, candidates.length ? randomChoice(candidates) : null);
+    castBotVote(room, bot);
     broadcast(room, 'room:state', publicRoom(room));
     if (room.votes.size === room.players.size) beginVoteReveal(room, '모두가 투표를 완료했습니다.');
   }, 700 * (index + 1)));
@@ -422,11 +428,20 @@ function skipTestPhase(room) {
   clearTimer(room); room.timerEndsAt = null; room.remainingMs = 0;
   if (room.phase === 'role_reveal') beginNight(room);
   else if (room.phase === 'night') {
-    const active = room.actionPrompt?.playerId;
-    if (active) completeActor(room, active);
-    nextAction(room);
+    // Finish the whole night without discarding bot abilities or copied actions.
+    // Unsubmitted human actions are skipped, just as on timeout.
+    while (room.phase === 'night') {
+      const prompt = room.actionPrompt;
+      if (prompt) {
+        if (room.players.get(prompt.playerId)?.isBot) {
+          applyNightAction(room, prompt.playerId, botNightAction(room, prompt.playerId));
+          if (room.actionPrompt === prompt) completeActor(room, prompt.playerId);
+        } else completeActor(room, prompt.playerId);
+      } else nextAction(room);
+    }
   } else if (room.phase === 'discussion') enterVoting(room);
   else if (room.phase === 'voting') {
+    for (const bot of room.players.values()) if (bot.isBot) castBotVote(room, bot);
     for (const id of room.players.keys()) if (!room.votes.has(id)) room.votes.set(id, null);
     resolveVotes(room);
   }
@@ -452,8 +467,13 @@ function handle(ws, event, data) {
   }
   if (event === 'room:bots:add') {
     if (!room || ws.playerId !== room.hostId || room.phase !== 'lobby') return emitError(ws, '대기실 방장만 AI 참가자를 추가할 수 있습니다.');
-    if (room.players.size !== 1 || [...room.players.values()].some((p) => p.isBot)) return emitError(ws, '혼자 만든 방에서만 AI 3명을 추가할 수 있습니다.');
-    for (const name of ['AI · 달빛', 'AI · 별빛', 'AI · 새벽']) {
+    const count = data.count ?? 3;
+    const available = 10 - room.players.size;
+    if (!Number.isInteger(count) || count < 1 || count > available) return emitError(ws, `AI는 1명부터 남은 자리 ${available}명까지 추가할 수 있습니다.`);
+    const names = ['달빛', '별빛', '새벽', '노을', '바람', '구름', '이슬', '안개', '은하'];
+    const existing = [...room.players.values()].filter((p) => p.isBot).length;
+    for (let i = 0; i < count; i += 1) {
+      const name = `AI · ${names[existing + i]}`;
       const id = `bot-${token()}`;
       room.players.set(id, { id, token: null, name, ready: true, connected: true, socket: null, isBot: true });
     }
@@ -551,6 +571,7 @@ function handle(ws, event, data) {
     broadcast(room, 'room:state', publicRoom(room)); return;
   }
   if (event === 'game:skip-phase' && ws.playerId === room.hostId && room.hasTestBots) {
+    if (data.phase !== undefined && (data.phase !== room.phase || data.nightTurn !== (room.phase === 'night' ? room.activeRole : null))) return emitError(ws, '이미 다음 단계로 넘어갔습니다.');
     if (!skipTestPhase(room)) return emitError(ws, '이 단계는 건너뛸 수 없습니다.');
     return;
   }

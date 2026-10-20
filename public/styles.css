@@ -144,6 +144,8 @@ body:has(.discussion-shell) { overflow:hidden; }
 @keyframes result-splash-fade { 0% { opacity:0; transform:scale(.94); } 16% { opacity:1; transform:scale(1); } 78% { opacity:1; } 100% { opacity:0; transform:scale(1.03); } }
 .center-cards { color:#8d8996; font-size:12px; padding:12px 0; }
 .hidden { display:none!important; }
+.winner small { display:block; color:#a39eae; margin-top:5px; font-size:11px; }
+#bot-count { width:auto; min-width:90px; }
 @media (max-width:760px) {
   .shell { padding:20px 18px 38px; }
   .topbar { margin-bottom:48px; }
