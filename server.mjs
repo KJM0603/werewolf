@@ -244,6 +244,7 @@ function beginVoteReveal(room, reason) {
 }
 
 function beginAction(room, role) {
+  const durationMs = role === 'doppelganger' ? 17000 : ['seer', 'robber', 'troublemaker'].includes(role) ? 7000 : 5000;
   room.activeRole = role;
   room.actionActors = actorIds(room, role).filter((id) => !room.actionDone.has(`${role}:${id}`));
   room.actionIndex = 0;
@@ -280,14 +281,14 @@ function beginAction(room, role) {
     setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
   if (!active) {
-    setTimer(room, role === 'doppelganger' ? 15000 : 5000);
+    setTimer(room, durationMs);
     broadcast(room, 'game:phase', publicRoom(room));
     return;
   }
   const ownRole = room.startRoles.get(active) === 'doppelganger' && room.copyRoles.get(active) === role ? 'doppelganger-copy' : role;
   room.actionPrompt = { playerId: active, role: ownRole, targetRole: role };
   privateSend(room, active, 'night:prompt', { role: ownRole, targetRole: role, players: [...room.players.values()].filter((p) => p.id !== active).map(({ id, name }) => ({ id, name })), centerCount: room.center.length });
-  setTimer(room, role === 'doppelganger' ? 15000 : 5000);
+  setTimer(room, durationMs);
   scheduleBotNightAction(room, active);
   broadcast(room, 'game:phase', publicRoom(room));
 }
