@@ -8,7 +8,7 @@ const ROLE_MAX = {werewolf:2, seer:1, robber:1, troublemaker:1, drunk:1, insomni
 const ROLE_STEP = {mason:2};
 const app = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
-const state = { ws:null, room:null, playerId:null, sessionToken:null, isHost:false, privateRole:null, privateVisible:true, prompt:null, privateResults:[], selectedTarget:null, selectedSecond:null, selectedCenter:[], micOn:false, cameraOn:false, localStream:null, audioStream:null, videoStream:null, peers:new Map(), remoteStreams:new Map(), chat:[], error:'', timerNow:Date.now(), rolesPending:false };
+const state = { ws:null, room:null, playerId:null, sessionToken:null, isHost:false, privateRole:null, privateVisible:true, prompt:null, privateResults:[], selectedTarget:null, selectedSecond:null, selectedCenter:[], micOn:false, cameraOn:false, localStream:null, audioStream:null, videoStream:null, peers:new Map(), remoteStreams:new Map(), chat:[], error:'', timerNow:Date.now(), rolesPending:false, resultSplashComplete:true, resultSplashId:0 };
 let toastTimer;
 let reconnecting = false;
 
@@ -39,10 +39,10 @@ function handleMessage(event,data) {
   }
   if(event==='role:private'){state.privateRole=data.role;state.privateVisible=true;render();return;}
   if(event==='night:prompt'){state.prompt=data;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
-  if(event==='night:info'){state.privateResults.push({title:ROLE_INFO[data.role]?.name||'밤 정보',text:data.loneCenter?`혼자 있는 늑대입니다. 중앙 카드: ${data.loneCenter.map(r=>ROLE_INFO[r]?.name||r).join(', ')}`:data.role==='mason'?`함께 깨어난 프리메이슨: ${data.others?.length?data.others.join(', '):'없음'}`:data.others?.length?`함께 깨어난 늑대: ${data.others.join(', ')}`:data.wolves?`늑대인간: ${data.wolves.length?data.wolves.join(', '):'없음'}`:data.currentRole?`현재 역할: ${ROLE_INFO[data.currentRole]?.name||data.currentRole}`:'확인할 정보가 없습니다.'});render();return;}
-  if(event==='night:result'){state.privateResults.push(data);state.prompt=null;render();notify(data.text||data.roles?.join(' · ')||data.title);return;}
+  if(event==='night:info'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push({title:ROLE_INFO[data.role]?.name||'밤 정보',currentRole:data.currentRole,text:data.loneCenter?`혼자 있는 늑대입니다. 중앙 카드: ${data.loneCenter.map(r=>ROLE_INFO[r]?.name||r).join(', ')}`:data.role==='mason'?`함께 깨어난 프리메이슨: ${data.others?.length?data.others.join(', '):'없음'}`:data.others?.length?`함께 깨어난 늑대: ${data.others.join(', ')}`:data.wolves?`늑대인간: ${data.wolves.length?data.wolves.join(', '):'없음'}`:data.currentRole?`현재 역할: ${ROLE_INFO[data.currentRole]?.name||data.currentRole}`:'확인할 정보가 없습니다.'});render();return;}
+  if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();notify(data.text||data.roles?.join(' · ')||data.title);return;}
   if(event==='chat:message'){state.chat.push(data);if(state.room)state.room.chat=state.chat.slice(-40);render();return;}
-  if(event==='game:result'){state.room.result=data;state.room.phase='result';state.prompt=null;render();return;}
+  if(event==='game:result'){state.room.result=data;state.room.phase='result';state.prompt=null;state.resultSplashComplete=false;const splashId=++state.resultSplashId;render();setTimeout(()=>{if(state.resultSplashId===splashId){state.resultSplashComplete=true;render();}},3000);return;}
   if(event.startsWith('webrtc:')){handleSignal(event,data);return;}
   if(event==='game:pause-availability'){if(state.room)state.room.pauseAvailable=data.available;render();}
 }
@@ -73,10 +73,10 @@ function playersCard() {
 }
 
 function timerMarkup() {
-  const room=state.room;const ms=room.phase==='paused'?room.remainingMs:room.timerEndsAt?Math.max(0,room.timerEndsAt-state.timerNow):0;const seconds=Math.ceil(ms/1000);const label={role_reveal:'역할 확인',night:'밤',discussion:'토론',voting:'투표'}[room.phase]||'진행 중';
+  const room=state.room;const ms=room.phase==='paused'?room.remainingMs:room.timerEndsAt?Math.max(0,room.timerEndsAt-state.timerNow):0;const seconds=Math.ceil(ms/1000);const label={role_reveal:'역할 확인',night:'밤 행동',discussion:'토론',voting:'투표',vote_reveal:'결과 공개'}[room.phase]||'진행 중';
   return `<div class="timer" id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</div><div class="timer-label">${label} · 남은 시간</div>`;
 }
-function videoGrid(room) {return `<div class="video-grid">${room.players.map(p=>`<div class="video-tile ${p.id===state.playerId?'local-tile':''}" id="tile-${esc(p.id)}"><video id="video-${esc(p.id)}" autoplay playsinline ${p.id===state.playerId?'muted':''}></video><div class="video-placeholder" id="video-placeholder-${esc(p.id)}"><span>${esc(p.name.slice(0,1))}</span><small>${p.isBot?'AI 플레이어':'카메라 꺼짐'}</small></div><div class="video-label">${esc(p.name)}${p.id===state.playerId?' · 나':''}</div></div>`).join('')}</div>`;}
+function videoGrid(room) {return `<div class="video-grid discussion-video-grid players-${Math.min(room.players.length,10)}">${room.players.map(p=>`<div class="video-tile ${p.id===state.playerId?'local-tile':''}" id="tile-${esc(p.id)}"><video id="video-${esc(p.id)}" autoplay playsinline ${p.id===state.playerId?'muted':''}></video><div class="video-placeholder" id="video-placeholder-${esc(p.id)}"><span>${esc(p.name.slice(0,1))}</span><small>${p.isBot?'AI 플레이어':'카메라 꺼짐'}</small></div><div class="video-label">${esc(p.name)}${p.id===state.playerId?' · 나':''}</div></div>`).join('')}</div>`;}
 
 function roleCard() {
   if(!state.privateRole)return `<div class="role-card"><div class="role-secret">서버가 비공개 역할을 배정하고 있습니다.</div></div>`;
@@ -86,6 +86,10 @@ function roleCard() {
 
 function nightPanel() {
   const prompt=state.prompt;
+  const latest=state.privateResults.at(-1);
+  const turn=ROLE_INFO[state.room?.nightTurn]||{name:'밤 행동',emoji:'🌘'};
+  const resultRole=latest?.currentRole?ROLE_INFO[latest.currentRole]:null;
+  const privateResult=latest?`<div class="night-result" role="status" aria-live="polite"><div class="section-kicker">나만 볼 수 있는 결과</div><div class="night-result-title">${esc(latest.title||'밤 정보')}</div>${resultRole?`<div class="night-result-role"><span>${resultRole.emoji}</span><strong>현재 내 역할: ${esc(resultRole.name)}</strong></div>`:latest.roles?.length?`<div class="night-result-cards">${latest.roles.map(name=>{const role=Object.values(ROLE_INFO).find(info=>info.name===name);return `<div><span>${role?.emoji||'🎭'}</span><strong>${esc(name)}</strong></div>`;}).join('')}</div>`:''}<div class="night-result-copy">${esc(latest.text||(!latest.roles?.length?'확인할 정보가 없습니다.':''))}</div></div>`:'';
   let control='';
   if(prompt){
     const targetRole=prompt.targetRole||prompt.role;
@@ -97,18 +101,31 @@ function nightPanel() {
     else if(targetRole==='troublemaker')control=`<div class="night-actions"><p class="muted">서로 다른 두 명을 선택해 역할을 바꿉니다.</p><label class="field-label">첫 번째 플레이어</label><select class="input" id="night-target"><option value="">선택</option>${players.map(p=>`<option value="${p.id}" ${state.selectedTarget===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select><label class="field-label">두 번째 플레이어</label><select class="input" id="night-target-2"><option value="">선택</option>${players.map(p=>`<option value="${p.id}" ${state.selectedSecond===p.id?'selected':''}>${esc(p.name)}</option>`).join('')}</select><button class="btn" id="submit-night">두 역할 바꾸기</button></div>`;
     else if(targetRole==='drunk')control=`<div class="night-actions"><p class="muted">중앙 카드 한 장과 역할을 바꿉니다. 바꾼 카드는 볼 수 없습니다.</p><div class="choice-grid">${[0,1,2].map(i=>`<button class="choice ${state.selectedCenter.includes(i)?'selected':''}" data-center="${i}">중앙 카드 ${i+1}</button>`).join('')}</div><button class="btn" id="submit-night">역할 바꾸기</button></div>`;
   } else control=`<div class="role-card"><div class="role-emoji">🌘</div><div class="role-name" style="font-size:18px">밤이 진행 중입니다</div><div class="role-secret">내 차례가 오면 행동 안내가 표시됩니다.</div></div>`;
-  const latest=state.privateResults.at(-1);
-  return `<div class="section-kicker">NIGHT PHASE</div><h2 class="section-title">밤이 깊었습니다</h2><p class="section-copy">화면을 다른 사람에게 보여주지 마세요. 밤 행동은 서버가 순서대로 안내합니다.</p>${roleCard()}${control}${latest?`<div class="panel" style="padding:13px;margin:18px 0 0"><div class="section-kicker">내 비공개 정보</div><div style="font-weight:600;font-size:13px;margin-top:6px">${esc(latest.title||'밤 정보')}</div><div class="muted" style="margin-top:4px">${esc(latest.text||latest.roles?.join(' · ')||'')}</div></div>`:''}`;
+  return `<div class="section-kicker">NIGHT PHASE</div><h2 class="section-title">밤이 깊었습니다</h2><p class="section-copy">화면을 다른 사람에게 보여주지 마세요. 밤 행동은 정해진 순서로 진행됩니다.</p>${timerMarkup()}<div class="night-turn" role="status"><span>지금 차례</span><strong>${turn.emoji} ${turn.name}</strong></div>${roleCard()}${privateResult}${control}`;
 }
 
 function chatPanel() {
   const chat=state.chat.length?state.chat:state.room.chat||[];
-  return `<section class="panel"><div class="section-kicker">TABLE TALK</div><h2 class="section-title" style="font-size:18px">채팅</h2><div class="chat-box" id="chat-box">${chat.map(m=>`<div class="chat-msg"><strong>${esc(m.name)}</strong>${esc(m.text)}</div>`).join('')||'<div class="muted">아직 대화가 없습니다.</div>'}</div><form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" placeholder="메시지 입력" autocomplete="off"><button class="btn" aria-label="보내기">↗</button></form></section>`;
+  return `<section class="panel chat-panel"><div class="section-kicker">TABLE TALK</div><h2 class="section-title" style="font-size:18px">채팅</h2><div class="chat-box" id="chat-box">${chat.map(m=>`<div class="chat-msg"><strong>${esc(m.name)}</strong>${esc(m.text)}</div>`).join('')||'<div class="muted">아직 대화가 없습니다.</div>'}</div><form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" placeholder="메시지 입력 · Enter로 전송" autocomplete="off"><button class="btn" aria-label="보내기">↗</button></form></section>`;
 }
 
 function resultPanel() {
   const result=state.room.result;if(!result)return '';
+  if(!state.resultSplashComplete){
+    const winnerById=new Map(result.winners.map(w=>[w.id,w.win]));
+    const tannerWon=result.finalRoles.some(p=>p.role==='tanner'&&p.killed&&winnerById.get(p.id));
+    const icon=tannerWon?'🪓':result.wolfTeamWin?'🐺':result.minionWin&&!result.wolfTeamWin?'🕴️':'🧑‍🌾';
+    const headline=tannerWon&&result.villageWin?'마을 팀과 무두장이 승리!':tannerWon?'무두장이 승리!':result.wolfTeamWin?'늑대인간 팀 승리!':result.minionWin?'하수인 단독 승리!':'마을 팀 승리!';
+    return `<div class="result-splash"><div class="result-splash-icon">${icon}</div><h2>${headline}</h2></div>`;
+  }
   return `<div class="section-kicker">THE REVEAL</div><h2 class="section-title">밤의 진실</h2><p class="section-copy">중앙 카드: ${result.center.join(' · ')}</p><div class="player-list">${result.finalRoles.map(p=>{const win=result.winners.find(w=>w.id===p.id)?.win;return `<div class="winner"><span>${esc(p.name)} ${p.killed?'🪦':''}</span><span>${ROLE_INFO[p.role]?.emoji||'🎭'} ${ROLE_INFO[p.role]?.name||p.role} · ${win?'<span class="win-label">승리</span>':'<span class="lose-label">패배</span>'}</span></div>`;}).join('')}</div><div class="room-actions" style="margin-top:20px"><button class="btn ghost" id="leave-room">새 게임</button></div>`;
+}
+
+function discussionView(room) {
+  const hasExtension=!(room.extensionUsed||[]).includes(state.playerId);
+  const seconds=Math.ceil(Math.max(0,(room.timerEndsAt||state.timerNow)-state.timerNow)/1000);
+  app.innerHTML=`<div class="game-shell discussion-shell"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions">${room.hasTestBots&&hostView()?'<button class="btn ghost small" id="skip-phase">토론 건너뛰기</button>':''}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock"><div class="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraOn?'카메라 끄기':'카메라 켜기'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraOn?'카메라 켜짐':'카메라 꺼짐'}</small></div></footer></main></div>`;
+  bindGameEvents();bindAudio();bindVideo();bindMediaElements();scrollChat();
 }
 
 function gameView() {
@@ -117,20 +134,21 @@ function gameView() {
     app.innerHTML=`<div class="game-shell"><header class="game-top"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="room-code">초대 코드 <strong>${room.code}</strong><button class="count-btn" id="copy-code" aria-label="코드 복사">⧉</button></div></header><div class="layout"><section class="panel main-panel"><div class="section-kicker">WAITING ROOM</div><h1 class="section-title">모두 모였나요?</h1><p class="section-copy">방 코드를 친구에게 공유하고, 준비가 끝나면 게임을 시작하세요.</p>${playersCard()}</section><aside class="side-stack">${roleEditor()}<section class="panel audio-card"><div><div class="section-kicker">VOICE CHAT</div><div class="audio-state">토론 단계에서 음성을 켤 수 있습니다</div></div><span>🎙️</span></section></aside></div></div>`;
     bindRoomEvents();bindRoleEvents();return;
   }
-  const phase=room.phase;const title={role_reveal:'내 역할을 확인하세요',night:'모두 눈을 감으세요',discussion:'마을이 깨어났습니다',voting:'누구를 지목할까요?',paused:'게임이 잠시 멈췄습니다',result:'게임 결과'}[phase]||'게임 진행 중';
+  const phase=room.phase;const title={role_reveal:'내 역할을 확인하세요',night:'모두 눈을 감으세요',discussion:'마을이 깨어났습니다',voting:'누구를 지목할까요?',vote_reveal:'결과 공개 준비',paused:'게임이 잠시 멈췄습니다',result:'게임 결과'}[phase]||'게임 진행 중';
   const hunterRule=room.roles.includes('hunter')?' 사냥꾼이 최다 득표로 사망하면, 사냥꾼이 지목한 사람도 함께 사망합니다.':'';
+  if(phase==='discussion'){discussionView(room);return;}
   let content='';
-  if(phase==='role_reveal')content=`<div class="section-kicker">YOUR ROLE</div><h2 class="section-title">내 역할을 확인하세요</h2><p class="section-copy">카드를 확인한 뒤 화면을 가려 주세요. 밤이 곧 시작됩니다.</p>${roleCard()}<div class="center-cards">중앙 카드 3장은 게임 종료 전까지 공개되지 않습니다.</div>`;
+  if(phase==='role_reveal')content=`<div class="section-kicker">YOUR ROLE</div><h2 class="section-title">내 역할을 확인하세요</h2><p class="section-copy">카드를 확인한 뒤 화면을 가려 주세요. 밤이 곧 시작됩니다.</p>${timerMarkup()}${roleCard()}<div class="center-cards">중앙 카드 3장은 게임 종료 전까지 공개되지 않습니다.</div>`;
   else if(phase==='night')content=nightPanel();
-  else if(phase==='discussion')content=`<div class="section-kicker">DISCUSSION</div><h2 class="section-title">마을이 깨어났습니다</h2><p class="section-copy">서로의 기억을 맞춰 늑대인간을 찾아보세요. 카메라와 음성 또는 채팅으로 토론할 수 있습니다.</p>${timerMarkup()}<div class="inline-actions media-controls"><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraOn?'카메라 끄기':'카메라 켜기'}</button></div>${videoGrid(room)}<p class="media-help">카메라와 마이크는 각 버튼을 눌렀을 때만 켜집니다. 토론이 끝나면 자동으로 꺼집니다.</p>`;
   else if(phase==='voting')content=`<div class="section-kicker">SECRET VOTE</div><h2 class="section-title">누구를 지목할까요?</h2><p class="section-copy">투표는 모두 제출할 때까지 비공개입니다. 최다 득표가 동률이면 모두 사망하고, 아무도 2표 이상 받지 않으면 사망자는 없습니다. 늑대가 없다고 합의했다면 서로 다른 사람을 지목해 투표를 피할 수 있습니다.${hunterRule}</p>${timerMarkup()}<div class="choice-grid">${room.players.filter(p=>p.id!==state.playerId).map(p=>`<button class="choice ${state.selectedTarget===p.id?'selected':''}" data-vote="${p.id}">${esc(p.name)}</button>`).join('')}</div><div class="room-actions"><button class="btn" id="submit-vote" ${!state.selectedTarget||room.votesSubmitted&&room.votesSubmitted>=room.players.length?'disabled':''}>비밀 투표 제출</button></div><div class="submissions">투표 제출 ${room.votesSubmitted}/${room.players.length}</div>`;
+  else if(phase==='vote_reveal')content=`<div class="section-kicker">VOTE COMPLETE</div><h2 class="section-title">5초 뒤 결과를 공개합니다</h2><p class="section-copy">${esc(room.voteRevealReason||'잠시 후 결과를 공개합니다.')}</p>${timerMarkup()}`;
   else if(phase==='paused')content=`<div class="section-kicker">PAUSED BY HOST</div><h2 class="section-title">모두 잠시 멈췄습니다</h2><p class="section-copy">타이머와 음성이 멈췄습니다. 연결을 확인한 뒤 방장이 재개할 수 있습니다.</p><div class="timer">${String(Math.floor(room.remainingMs/60000)).padStart(2,'0')}:${String(Math.floor(room.remainingMs/1000)%60).padStart(2,'0')}</div>${hostView()?'<button class="btn" id="resume-game">게임 재개</button>':''}`;
   else if(phase==='result')content=resultPanel();
   app.innerHTML=`<div class="game-shell"><header class="game-top"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="inline-actions">${room.pauseAvailable&&hostView()&&phase!=='paused'?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">${esc(title)}</div><button class="btn ghost small" id="copy-code">${room.code}</button></div></header><div class="layout"><section class="panel main-panel">${content}</section><aside class="side-stack"><section class="panel"><div class="section-kicker">PLAYERS · ${room.players.length}</div><div class="player-list" style="margin-top:12px">${room.players.map(p=>`<div class="player-row"><span class="player-name"><span class="avatar">${esc(p.name.slice(0,1))}</span>${esc(p.name)}</span><span class="player-badge ${p.connected?'ready':'offline'}">${p.connected?'●':'○'}</span></div>`).join('')}</div></section><section class="panel audio-card"><div><div class="section-kicker">VOICE & VIDEO</div><div class="audio-state">${phase==='discussion'?(state.micOn?'마이크 켜짐':'마이크 끔')+' · '+(state.cameraOn?'카메라 켜짐':'카메라 끔'):'토론 단계에서 사용할 수 있습니다'}</div></div><span>🎙️📹</span></section>${['discussion','voting'].includes(phase)?chatPanel():''}</aside></div>${phase==='paused'?`<div class="pause-overlay"><div class="pause-card"><div class="pause-icon">⏸</div><h2>게임이 멈췄습니다</h2><p>모든 참가자의 화면과 음성이 일시정지되었습니다.<br>${esc(room.pauseReason||'방장이 게임을 멈췄습니다.')}</p>${hostView()?'<button class="btn" id="resume-game-overlay">게임 재개</button>':''}</div></div>`:''}</div>`;
   bindGameEvents();bindAudio();bindVideo();bindMediaElements();scrollChat();
 }
 
-function render() { if(!state.room)landing();else gameView(); }
+function render() { const keepChatFocus=document.activeElement?.id==='chat-input';if(!state.room)landing();else gameView();if(keepChatFocus){const input=document.querySelector('#chat-input');if(input){input.focus({preventScroll:true});input.setSelectionRange(input.value.length,input.value.length);}} }
 function bindRoomEvents() {
   document.querySelector('#copy-code')?.addEventListener('click',copyCode);
   document.querySelector('#ready-toggle')?.addEventListener('click',()=>{const p=state.room.players.find(p=>p.id===state.playerId);send('player:ready',{ready:!p.ready});});
@@ -151,19 +169,23 @@ function changeRole(role,delta) {
   if(!send('roles:adjust',{role,delta})){state.rolesPending=false;render();}
 }
 function bindGameEvents() {
+  const room=state.room;const phase=room?.phase;const skipLabels={role_reveal:'역할 공개 건너뛰기',night:state.prompt?'현재 행동 건너뛰기':'밤 정보 확인 종료',discussion:'토론 건너뛰기',voting:'투표 건너뛰고 결과 보기',vote_reveal:'결과 바로 보기'};
+  if(room?.hasTestBots&&hostView()&&skipLabels[phase]&&!document.querySelector('#skip-phase')){const button=document.createElement('button');button.type='button';button.id='skip-phase';button.className='btn ghost small';button.textContent=skipLabels[phase];document.querySelector('.discussion-top-actions,.game-top .inline-actions')?.prepend(button);}
   document.querySelector('#copy-code')?.addEventListener('click',copyCode);
   document.querySelector('#hide-role')?.addEventListener('click',()=>{state.privateVisible=!state.privateVisible;render();});
   document.querySelector('#role-card')?.addEventListener('click',()=>{if(!state.privateVisible){state.privateVisible=true;render();}});
   document.querySelector('#pause-game')?.addEventListener('click',()=>send('game:pause'));
+  document.querySelector('#skip-phase')?.addEventListener('click',()=>send('game:skip-phase'));
   document.querySelector('#resume-game')?.addEventListener('click',()=>send('game:resume'));
   document.querySelector('#resume-game-overlay')?.addEventListener('click',()=>send('game:resume'));
+  document.querySelector('#extend-time')?.addEventListener('click',()=>send('discussion:extend'));
   document.querySelectorAll('[data-center]').forEach(btn=>btn.addEventListener('click',()=>{const i=Number(btn.dataset.center);if(state.selectedCenter.includes(i))state.selectedCenter=state.selectedCenter.filter(x=>x!==i);else if(state.selectedCenter.length<2)state.selectedCenter.push(i);render();}));
   document.querySelector('#night-target')?.addEventListener('change',(e)=>state.selectedTarget=e.target.value||null);
   document.querySelector('#night-target-2')?.addEventListener('change',(e)=>state.selectedSecond=e.target.value||null);
   document.querySelector('#submit-night')?.addEventListener('click',submitNight);
   document.querySelectorAll('[data-vote]').forEach(btn=>btn.addEventListener('click',()=>{state.selectedTarget=btn.dataset.vote;render();}));
   document.querySelector('#submit-vote')?.addEventListener('click',()=>{send('vote:cast',{targetId:state.selectedTarget});state.selectedTarget=null;notify('투표를 제출했습니다.');render();});
-  document.querySelector('#chat-form')?.addEventListener('submit',(e)=>{e.preventDefault();const input=document.querySelector('#chat-input');const text=input.value.trim();if(text){send('chat:send',{text});input.value='';}});
+  document.querySelector('#chat-form')?.addEventListener('submit',(e)=>{e.preventDefault();const input=document.querySelector('#chat-input');const text=input.value.trim();if(text){send('chat:send',{text});input.value='';}input.focus();});
   document.querySelector('#leave-room')?.addEventListener('click',()=>{localStorage.removeItem('one-night-session');location.reload();});
 }
 function submitNight() {

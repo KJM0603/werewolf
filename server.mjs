@@ -90,6 +90,7 @@ function publicRoom(room) {
     code: room.code,
     hostId: room.hostId,
     phase: room.phase,
+    nightTurn: room.phase === 'night' ? room.activeRole : null,
     players: [...room.players.values()].map((p) => ({ id: p.id, name: p.name, ready: p.ready, connected: p.connected, isBot: Boolean(p.isBot) })),
     roles: room.roles,
     roleTarget: playerCount + 3,
@@ -101,6 +102,8 @@ function publicRoom(room) {
     pauseReason: room.pauseReason,
     votesSubmitted: room.votes.size,
     voteTarget: playerCount,
+    extensionUsed: [...room.extensionUsed],
+    voteRevealReason: room.voteRevealReason,
     result: room.result,
     chat: room.chat.slice(-40),
   };
@@ -122,7 +125,8 @@ function roleForPlayer(room, playerId) {
 }
 
 function playerCard(room, playerId) { return room.cards.find((c) => c.ownerId === playerId); }
-function actorIds(room, role) { return [...room.players.keys()].filter((id) => room.startRoles.get(id) === role || role !== 'minion' && room.startRoles.get(id) === 'doppelganger' && room.copyRoles.get(id) === role && !IMMEDIATE_COPY_ROLES.has(role)); }
+function actorIds(room, role) { return [...room.players.keys()].filter((id) => room.startRoles.get(id) === role || room.startRoles.get(id) === 'doppelganger' && room.copyRoles.get(id) === role && !IMMEDIATE_COPY_ROLES.has(role)); }
+function hasPendingActor(room, role) { return actorIds(room, role).some((id) => !room.actionDone.has(`${role}:${id}`)); }
 
 function setTimer(room, ms) {
   clearTimeout(room.timer);
@@ -137,7 +141,7 @@ function clearTimer(room) { clearTimeout(room.timer); room.timer = null; }
 function startDiscussion(room) {
   room.phase = 'discussion'; room.activeRole = null; room.actionPrompt = null;
   room.actionActors = []; room.actionIndex = 0;
-  setTimer(room, (room.hasTestBots ? 35 : room.discussionSeconds) * 1000);
+  setTimer(room, room.discussionSeconds * 1000);
   broadcast(room, 'game:phase', publicRoom(room));
 }
 
@@ -175,14 +179,24 @@ function scheduleBotVotes(room) {
     const candidates = [...room.players.keys()].filter((id) => id !== bot.id && (!wolfTeam.has(bot.id) || !wolfTeam.has(id)));
     room.votes.set(bot.id, candidates.length ? randomChoice(candidates) : null);
     broadcast(room, 'room:state', publicRoom(room));
+    if (room.votes.size === room.players.size) beginVoteReveal(room, '모두가 투표를 완료했습니다.');
   }, 700 * (index + 1)));
 }
 
 function enterVoting(room) {
   room.phase = 'voting'; room.votes = new Map();
-  setTimer(room, (room.hasTestBots ? 35 : room.votingSeconds) * 1000);
+  setTimer(room, room.votingSeconds * 1000);
   broadcast(room, 'game:phase', publicRoom(room));
   if (room.hasTestBots) scheduleBotVotes(room);
+}
+
+function beginVoteReveal(room, reason) {
+  if (room.phase !== 'voting') return;
+  clearTimer(room);
+  room.phase = 'vote_reveal';
+  room.voteRevealReason = reason;
+  setTimer(room, 5000);
+  broadcast(room, 'game:phase', publicRoom(room));
 }
 
 function beginAction(room, role) {
@@ -200,12 +214,12 @@ function beginAction(room, role) {
       privateSend(room, id, 'night:info', { role, others, loneCenter });
       room.actionDone.add(`${role}:${id}`);
     }
-    return nextAction(room);
+    setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
   if (role === 'minion') {
     const wolves = actorIds(room, 'werewolf').map((id) => room.players.get(id)?.name);
     for (const id of room.actionActors) { privateSend(room, id, 'night:info', { role, wolves }); room.actionDone.add(`${role}:${id}`); }
-    return nextAction(room);
+    setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
   if (role === 'mason') {
     const masons = actorIds(room, 'mason');
@@ -214,17 +228,21 @@ function beginAction(room, role) {
       privateSend(room, id, 'night:info', { role, others });
       room.actionDone.add(`${role}:${id}`);
     }
-    return nextAction(room);
+    setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
   if (role === 'insomniac') {
     for (const id of room.actionActors) { privateSend(room, id, 'night:info', { role, currentRole: roleForPlayer(room, id) }); room.actionDone.add(`${role}:${id}`); }
-    return nextAction(room);
+    setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
-  if (!active) return nextAction(room);
+  if (!active) {
+    setTimer(room, role === 'doppelganger' ? 10000 : 5000);
+    broadcast(room, 'game:phase', publicRoom(room));
+    return;
+  }
   const ownRole = room.startRoles.get(active) === 'doppelganger' && room.copyRoles.get(active) === role ? 'doppelganger-copy' : role;
   room.actionPrompt = { playerId: active, role: ownRole };
   privateSend(room, active, 'night:prompt', { role: ownRole, targetRole: role, players: [...room.players.values()].filter((p) => p.id !== active).map(({ id, name }) => ({ id, name })), centerCount: room.center.length });
-  setTimer(room, 25000);
+  setTimer(room, role === 'doppelganger' ? 10000 : 5000);
   scheduleBotNightAction(room, active);
   broadcast(room, 'game:phase', publicRoom(room));
 }
@@ -234,7 +252,7 @@ function nextAction(room) {
   const currentRoleIndex = NIGHT_ORDER.indexOf(room.activeRole);
   for (let i = currentRoleIndex + 1; i < NIGHT_ORDER.length; i += 1) {
     const nextRole = NIGHT_ORDER[i];
-    if (actorIds(room, nextRole).some((id) => !room.actionDone.has(`${nextRole}:${id}`))) return beginAction(room, nextRole);
+    if (hasPendingActor(room, nextRole)) return beginAction(room, nextRole);
   }
   startDiscussion(room);
 }
@@ -248,7 +266,7 @@ function completeActor(room, playerId) {
     const promptRole = room.startRoles.get(nextPlayer) === 'doppelganger' ? 'doppelganger-copy' : role;
     room.actionPrompt = { playerId: nextPlayer, role: promptRole };
     privateSend(room, nextPlayer, 'night:prompt', { role: promptRole, targetRole: role, players: [...room.players.values()].filter((p) => p.id !== nextPlayer).map(({ id, name }) => ({ id, name })), centerCount: room.center.length });
-    setTimer(room, 25000);
+    setTimer(room, room.startRoles.get(nextPlayer) === 'doppelganger' ? 10000 : 5000);
     scheduleBotNightAction(room, nextPlayer);
     broadcast(room, 'game:phase', publicRoom(room));
   } else nextAction(room);
@@ -257,8 +275,9 @@ function completeActor(room, playerId) {
 function beginNight(room) {
   room.phase = 'night'; room.actionDone = new Set(); room.copyRoles = new Map();
   room.activeRole = null; room.actionActors = []; room.actionIndex = 0;
-  const first = NIGHT_ORDER.find((role) => actorIds(room, role).length > 0);
-  if (first) beginAction(room, first); else startDiscussion(room);
+  const firstRole = NIGHT_ORDER.find((role) => hasPendingActor(room, role));
+  if (firstRole) beginAction(room, firstRole);
+  else startDiscussion(room);
 }
 
 function startGame(room) {
@@ -273,9 +292,10 @@ function startGame(room) {
   players.forEach((p, i) => { deck[i].ownerId = p.id; room.startRoles.set(p.id, deck[i].role); privateSend(room, p.id, 'role:private', { role: deck[i].role, name: ROLE_NAME[deck[i].role] }); });
   room.center = deck.slice(n);
   room.votes = new Map(); room.result = null;
+  room.discussionSeconds = 600; room.votingSeconds = 20; room.extensionUsed = new Set(); room.voteRevealReason = null;
   room.phase = 'role_reveal';
   broadcast(room, 'game:phase', publicRoom(room));
-  setTimer(room, 10000);
+  setTimer(room, 5000);
 }
 
 function currentActors(room) { return room.actionActors; }
@@ -293,9 +313,11 @@ function applyNightAction(room, playerId, data) {
     const own = playerCard(room, playerId);
     own.copyRole = copied;
     room.copyRoles.set(playerId, copied);
-    privateSend(room, playerId, 'night:result', { title: '복사한 역할', text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[copied] || copied}입니다. 해당 역할을 복사했습니다.` });
+    privateSend(room, playerId, 'night:result', { title: '복사한 역할', currentRole: copied, text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[copied] || copied}입니다. 해당 역할을 복사했습니다.` });
   } else if (actingAs === 'seer' || actingAs === 'doppelganger-copy' && ['seer'].includes(prompt.targetRole)) {
-    if (data.centerIndexes?.length === 2) {
+    if (Array.isArray(data.centerIndexes) && data.centerIndexes.length === 2) {
+      const validIndexes = data.centerIndexes.every((i) => Number.isInteger(i) && i >= 0 && i < room.center.length);
+      if (!validIndexes || new Set(data.centerIndexes).size !== 2) return send(room.players.get(playerId)?.socket, 'error', { message: '서로 다른 중앙 카드 두 장을 선택해 주세요.' });
       const roles = data.centerIndexes.map((i) => room.center[i]?.role).filter(Boolean);
       if (roles.length !== 2) return send(room.players.get(playerId)?.socket, 'error', { message: '중앙 카드 두 장을 선택해 주세요.' });
       privateSend(room, playerId, 'night:result', { title: '중앙 카드 확인', roles: roles.map((r) => ROLE_NAME[r]) });
@@ -303,7 +325,7 @@ function applyNightAction(room, playerId, data) {
     else return send(room.players.get(playerId)?.socket, 'error', { message: '플레이어 한 명 또는 중앙 카드 두 장을 선택해 주세요.' });
   } else if (actingAs === 'robber' || actingAs === 'doppelganger-copy' && prompt.targetRole === 'robber') {
     if (!target(data.targetId) || !swap(playerId, data.targetId)) return send(room.players.get(playerId)?.socket, 'error', { message: '바꿀 플레이어를 선택해 주세요.' });
-    privateSend(room, playerId, 'night:result', { title: '역할 교환', text: `새 역할은 ${ROLE_NAME[roleForPlayer(room, playerId)]}입니다.` });
+    privateSend(room, playerId, 'night:result', { title: '역할 교환', currentRole: roleForPlayer(room, playerId), text: `새 역할은 ${ROLE_NAME[roleForPlayer(room, playerId)]}입니다.` });
   } else if (actingAs === 'troublemaker' || actingAs === 'doppelganger-copy' && prompt.targetRole === 'troublemaker') {
     if (!target(data.targetId) || !target(data.secondTargetId) || data.targetId === data.secondTargetId || !swap(data.targetId, data.secondTargetId)) return send(room.players.get(playerId)?.socket, 'error', { message: '서로 다른 플레이어 두 명을 골라 주세요.' });
     privateSend(room, playerId, 'night:result', { title: '역할 교환', text: '두 플레이어의 역할을 서로 바꿨습니다.' });
@@ -321,13 +343,7 @@ function applyNightAction(room, playerId, data) {
     const copiedRole = room.copyRoles.get(playerId);
     room.actionPrompt = { playerId, role: 'doppelganger-copy', targetRole: copiedRole };
     privateSend(room, playerId, 'night:prompt', { role: 'doppelganger-copy', targetRole: copiedRole, players: [...room.players.values()].filter((p) => p.id !== playerId).map(({ id, name }) => ({ id, name })), centerCount: room.center.length });
-    setTimer(room, 25000); scheduleBotNightAction(room, playerId); broadcast(room, 'game:phase', publicRoom(room)); return;
-  }
-  if (actingAs === 'doppelganger' && room.copyRoles.get(playerId) === 'minion') {
-    const wolves = actorIds(room, 'werewolf').map((id) => room.players.get(id)?.name);
-    privateSend(room, playerId, 'night:info', { role: 'minion', wolves });
-    completeActor(room, playerId);
-    return;
+    setTimer(room, 5000); scheduleBotNightAction(room, playerId); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
   completeActor(room, playerId);
 }
@@ -374,7 +390,25 @@ function timerExpired(room) {
     if (active) completeActor(room, active);
     else nextAction(room);
   } else if (room.phase === 'discussion') enterVoting(room);
-  else if (room.phase === 'voting') resolveVotes(room);
+  else if (room.phase === 'voting') beginVoteReveal(room, '투표 시간이 끝났습니다.');
+  else if (room.phase === 'vote_reveal') resolveVotes(room);
+}
+
+function skipTestPhase(room) {
+  if (!room.hasTestBots || !['role_reveal', 'night', 'discussion', 'voting', 'vote_reveal'].includes(room.phase)) return false;
+  clearTimer(room); room.timerEndsAt = null; room.remainingMs = 0;
+  if (room.phase === 'role_reveal') beginNight(room);
+  else if (room.phase === 'night') {
+    const active = room.actionPrompt?.playerId;
+    if (active) completeActor(room, active);
+    else nextAction(room);
+  } else if (room.phase === 'discussion') enterVoting(room);
+  else if (room.phase === 'voting') {
+    for (const id of room.players.keys()) if (!room.votes.has(id)) room.votes.set(id, null);
+    resolveVotes(room);
+  }
+  else if (room.phase === 'vote_reveal') resolveVotes(room);
+  return true;
 }
 
 function roomFor(ws) { return ws.room ? rooms.get(ws.room) : null; }
@@ -387,7 +421,7 @@ function handle(ws, event, data) {
     if (ws.playerId) return emitError(ws, '이미 방에 입장해 있습니다.');
     let roomCode; do { roomCode = code(); } while (rooms.has(roomCode));
     const id = token(); const sessionToken = token();
-    const newRoom = { code: roomCode, hostId: id, players: new Map(), roles: defaultRoles(1), customRoles: false, hasTestBots: false, phase: 'lobby', cards: [], center: [], startRoles: new Map(), copyRoles: new Map(), votes: new Map(), chat: [], discussionSeconds: 150, votingSeconds: 45, timer: null, timerEndsAt: null, remainingMs: 0, actionDone: new Set(), actionActors: [], actionIndex: 0, activeRole: null, actionPrompt: null, result: null, pauseReason: null };
+    const newRoom = { code: roomCode, hostId: id, players: new Map(), roles: defaultRoles(1), customRoles: false, hasTestBots: false, phase: 'lobby', cards: [], center: [], startRoles: new Map(), copyRoles: new Map(), votes: new Map(), chat: [], discussionSeconds: 600, votingSeconds: 20, extensionUsed: new Set(), voteRevealReason: null, timer: null, timerEndsAt: null, remainingMs: 0, actionDone: new Set(), actionActors: [], actionIndex: 0, activeRole: null, actionPrompt: null, result: null, pauseReason: null };
     newRoom.players.set(id, { id, token: sessionToken, name: String(data.name || '플레이어').slice(0, 16), ready: false, connected: true, socket: ws });
     rooms.set(roomCode, newRoom); ws.room = roomCode; ws.playerId = id;
     send(ws, 'room:joined', { room: publicRoom(newRoom), playerId: id, token: sessionToken, isHost: true });
@@ -425,7 +459,7 @@ function handle(ws, event, data) {
     player.socket = ws; player.connected = true; player.disconnectedAt = null; ws.room = targetRoom.code; ws.playerId = player.id;
     send(ws, 'room:joined', { room: publicRoom(targetRoom), playerId: player.id, token: player.token, isHost: player.id === targetRoom.hostId });
     if (targetRoom.phase === 'role_reveal' || targetRoom.phase !== 'lobby' && targetRoom.startRoles.has(player.id)) {
-      const role = targetRoom.startRoles.get(player.id);
+      const role = roleForPlayer(targetRoom, player.id);
       send(ws, 'role:private', { role, name: ROLE_NAME[role] });
     }
     if (targetRoom.phase === 'night' && targetRoom.actionPrompt?.playerId === player.id) {
@@ -482,7 +516,19 @@ function handle(ws, event, data) {
     if (room.votes.has(ws.playerId)) return emitError(ws, '이미 투표하셨습니다.');
     const targetId = data.targetId === null ? null : room.players.has(data.targetId) && data.targetId !== ws.playerId ? data.targetId : null;
     room.votes.set(ws.playerId, targetId); broadcast(room, 'room:state', publicRoom(room));
-    if (room.votes.size === room.players.size) resolveVotes(room); return;
+    if (room.votes.size === room.players.size) beginVoteReveal(room, '모두가 투표를 완료했습니다.'); return;
+  }
+  if (event === 'discussion:extend' && room.phase === 'discussion') {
+    if (room.extensionUsed.has(ws.playerId)) return emitError(ws, '1분 연장권을 이미 사용하셨습니다.');
+    room.extensionUsed.add(ws.playerId);
+    const remaining = Math.max(0, room.timerEndsAt - Date.now());
+    room.discussionSeconds += 60;
+    setTimer(room, remaining + 60_000);
+    broadcast(room, 'room:state', publicRoom(room)); return;
+  }
+  if (event === 'game:skip-phase' && ws.playerId === room.hostId && room.hasTestBots) {
+    if (!skipTestPhase(room)) return emitError(ws, '이 단계는 건너뛸 수 없습니다.');
+    return;
   }
   if (event === 'chat:send' && ['discussion', 'voting'].includes(room.phase)) {
     const text = String(data.text || '').trim().slice(0, 300); if (!text) return;
