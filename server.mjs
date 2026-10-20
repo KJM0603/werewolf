@@ -158,7 +158,7 @@ function botNightAction(room, playerId) {
     const targets = [...others].sort(() => Math.random() - 0.5).slice(0, 2);
     return { targetId: targets[0], secondTargetId: targets[1] };
   }
-  if (role === 'drunk') return { centerIndex: Math.floor(Math.random() * 3) };
+  if (role === 'drunk' || role === 'werewolf') return { centerIndex: Math.floor(Math.random() * room.center.length) };
   if (['doppelganger', 'seer', 'robber'].includes(role)) return { targetId: randomChoice(others) };
   return {};
 }
@@ -210,11 +210,12 @@ function beginAction(room, role) {
     const wolves = actorIds(room, 'werewolf');
     for (const id of room.actionActors) {
       const others = wolves.filter((other) => other !== id).map((other) => room.players.get(other)?.name);
-      const loneCenter = wolves.length === 1 ? [room.center[0].role, room.center[1].role, room.center[2].role] : null;
-      privateSend(room, id, 'night:info', { role, others, loneCenter });
-      room.actionDone.add(`${role}:${id}`);
+      privateSend(room, id, 'night:info', { role, others, loneWolf: wolves.length === 1 });
+      if (wolves.length !== 1) room.actionDone.add(`${role}:${id}`);
     }
-    setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
+    if (wolves.length !== 1 || !active) {
+      setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
+    }
   }
   if (role === 'minion') {
     const wolves = actorIds(room, 'werewolf').map((id) => room.players.get(id)?.name);
@@ -240,7 +241,7 @@ function beginAction(room, role) {
     return;
   }
   const ownRole = room.startRoles.get(active) === 'doppelganger' && room.copyRoles.get(active) === role ? 'doppelganger-copy' : role;
-  room.actionPrompt = { playerId: active, role: ownRole };
+  room.actionPrompt = { playerId: active, role: ownRole, targetRole: role };
   privateSend(room, active, 'night:prompt', { role: ownRole, targetRole: role, players: [...room.players.values()].filter((p) => p.id !== active).map(({ id, name }) => ({ id, name })), centerCount: room.center.length });
   setTimer(room, role === 'doppelganger' ? 10000 : 5000);
   scheduleBotNightAction(room, active);
@@ -265,7 +266,7 @@ function completeActor(room, playerId) {
   const nextPlayer = room.actionActors[room.actionIndex];
   if (nextPlayer) {
     const promptRole = room.startRoles.get(nextPlayer) === 'doppelganger' ? 'doppelganger-copy' : role;
-    room.actionPrompt = { playerId: nextPlayer, role: promptRole };
+    room.actionPrompt = { playerId: nextPlayer, role: promptRole, targetRole: role };
     privateSend(room, nextPlayer, 'night:prompt', { role: promptRole, targetRole: role, players: [...room.players.values()].filter((p) => p.id !== nextPlayer).map(({ id, name }) => ({ id, name })), centerCount: room.center.length });
     setTimer(room, room.startRoles.get(nextPlayer) === 'doppelganger' ? 10000 : 5000);
     scheduleBotNightAction(room, nextPlayer);
@@ -308,7 +309,18 @@ function applyNightAction(room, playerId, data) {
   const target = (id) => room.players.has(id) && id !== playerId;
   const swap = (a, b) => { const ac = playerCard(room, a); const bc = playerCard(room, b); if (!ac || !bc) return false; ac.ownerId = b; bc.ownerId = a; return true; };
 
-  if (actingAs === 'doppelganger') {
+  if ((prompt.targetRole || actingAs) === 'werewolf') {
+    const wolves = actorIds(room, 'werewolf');
+    const index = data.centerIndex;
+    if (room.activeRole !== 'werewolf' || wolves.length !== 1 || wolves[0] !== playerId || room.actionDone.has(`werewolf:${playerId}`)) return emitError(room.players.get(playerId)?.socket, '혼자 깨어난 늑대인간만 중앙 카드 한 장을 확인할 수 있습니다.');
+    if (!Number.isInteger(index) || index < 0 || index >= room.center.length || data.centerIndexes !== undefined) return emitError(room.players.get(playerId)?.socket, '중앙 카드 한 장을 선택해 주세요.');
+    privateSend(room, playerId, 'night:result', { title: `중앙 카드 ${index + 1} 확인`, roles: [ROLE_NAME[room.center[index].role]] });
+    room.actionDone.add(`werewolf:${playerId}`);
+    room.actionPrompt = null;
+    // Allow time to read the result, including when this is the last night role.
+    setTimer(room, 5000);
+    return;
+  } else if (actingAs === 'doppelganger') {
     if (!target(data.targetId)) return send(room.players.get(playerId)?.socket, 'error', { message: '대상을 선택해 주세요.' });
     const copied = roleForPlayer(room, data.targetId);
     const own = playerCard(room, playerId);
