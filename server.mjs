@@ -413,7 +413,9 @@ function resolveVotes(room) {
   const counts = new Map();
   for (const targetId of room.votes.values()) if (targetId) counts.set(targetId, (counts.get(targetId) || 0) + 1);
   const max = Math.max(0, ...counts.values());
-  const killedSet = new Set(max > 1 ? [...counts.entries()].filter(([, count]) => count === max).map(([id]) => id) : []);
+  // The two-vote minimum does not kill runners-up: only the highest count dies.
+  const voteKilled = new Set(max > 1 ? [...counts.entries()].filter(([, count]) => count === max).map(([id]) => id) : []);
+  const killedSet = new Set(voteKilled);
   for (const id of [...killedSet]) {
     if (roleForPlayer(room, id) === 'hunter') {
       const targetId = room.votes.get(id);
@@ -421,7 +423,7 @@ function resolveVotes(room) {
     }
   }
   const killed = [...killedSet];
-  const finalRoles = [...room.players.values()].map((p) => ({ id: p.id, name: p.name, startRole: room.startRoles.get(p.id), role: roleForPlayer(room, p.id), votes: counts.get(p.id) || 0, killed: killedSet.has(p.id) }));
+  const finalRoles = [...room.players.values()].map((p) => ({ id: p.id, name: p.name, startRole: room.startRoles.get(p.id), role: roleForPlayer(room, p.id), votes: counts.get(p.id) || 0, killed: killedSet.has(p.id), deathReason: voteKilled.has(p.id) ? 'vote' : killedSet.has(p.id) ? 'hunter' : null }));
   const wolvesExist = finalRoles.some((p) => p.role === 'werewolf');
   const wolfKilled = finalRoles.some((p) => p.role === 'werewolf' && p.killed);
   const tannerKilled = finalRoles.some((p) => p.role === 'tanner' && p.killed);

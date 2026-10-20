@@ -41,6 +41,16 @@ test('incoming chat appends only a message; input, video, selection and private 
   assert.equal(input.value,'작성 중인 한글');assert.equal(input.selectionStart,4);
   assert.equal(video.srcObject.id,'stream');assert.equal(notes.open,true);
 });
+test('result distinguishes surviving losers from vote and hunter deaths',()=>{
+  const f=ui(),data=result(['villager','hunter','seer'],[false,false,false],['p1','p2']);
+  data.finalRoles[1].deathReason='vote';data.finalRoles[2].deathReason='hunter';
+  f.state.room={phase:'result',result:data};f.state.resultSplashComplete=true;
+  const html=f.resultPanel();
+  assert.ok(html.includes('생존</span>'));
+  assert.ok(html.includes('최다 득표로 사망'));
+  assert.ok(html.includes('사냥꾼의 지목으로 사망'));
+  assert.equal((html.match(/class="lose-label">패배/g)||[]).length,3);
+});
 test('failed chat send preserves the unsent draft',()=>{
   let submit;
   const input={value:'재전송할 내용',focus(){}};

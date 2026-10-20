@@ -255,6 +255,36 @@ test('PASS baseline: minion knows wolves but wolves do not learn minion',()=>{
   assert.deepEqual(f.messages('p0').find(m=>m.event==='night:info').data.wolves,['p1','p2']);
   assert.equal(f.messages('p1').filter(m=>m.event==='night:info').length,0);
 });
+for(const [name,votes,killed] of [
+  ['3 versus 2: runner-up survives',['p1','p0','p0','p0','p1'],['p0']],
+  ['3 versus 3 versus 2: only tied leaders die',['p1','p0','p0','p0','p1','p1','p2','p2'],['p0','p1']],
+  ['2 versus 2 versus 1: both leaders die',['p1','p0','p0','p1','p2'],['p0','p1']],
+  ['all one vote: no deaths',['p1','p2','p0'],[]],
+  ['no votes: no deaths',[null,null,null],[]]
+])test(`vote deaths: ${name}`,()=>{
+  const f=fixture(Array(votes.length).fill('villager'));
+  const result=f.vote(votes);
+  assert.deepEqual(Array.from(result.killed).sort(),killed);
+  for(const player of result.finalRoles){
+    assert.equal(player.killed,killed.includes(player.id));
+    assert.equal(player.deathReason,killed.includes(player.id)?'vote':null);
+  }
+});
+test('a dead hunter kills its target even below the leading vote count, with a separate cause',()=>{
+  const f=fixture(['hunter','villager','villager','villager','villager']);
+  const result=f.vote(['p1','p0','p0','p0','p1']);
+  assert.equal(result.finalRoles[0].votes,3);assert.equal(result.finalRoles[0].deathReason,'vote');
+  assert.equal(result.finalRoles[1].votes,2);assert.equal(result.finalRoles[1].deathReason,'hunter');
+  assert.deepEqual(Array.from(result.killed).sort(),['p0','p1']);
+});
+test('a hunter below the highest vote count survives and does not kill its target',()=>{
+  const f=fixture(['villager','hunter','villager','villager','villager','villager']);
+  const result=f.vote(['p1','p2','p0','p0','p0','p1']);
+  assert.deepEqual(Array.from(result.killed),['p0']);
+  assert.equal(result.finalRoles[1].votes,2);
+  assert.equal(result.finalRoles[1].deathReason,null);assert.equal(result.finalRoles[2].killed,false);
+});
+
 for(const [name,roles,votes,expected] of [
   ['wolf killed',['werewolf','villager','seer'],['p1','p0','p0'],[false,true,true]],
   ['wolf survives',['werewolf','villager','seer'],['p1','p2','p1'],[true,false,false]],
