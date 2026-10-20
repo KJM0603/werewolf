@@ -103,6 +103,7 @@ function publicRoom(room) {
     votesSubmitted: room.votes.size,
     voteTarget: playerCount,
     extensionUsed: [...room.extensionUsed],
+    discussionSkip: discussionSkipState(room),
     voteRevealReason: room.voteRevealReason,
     result: room.result,
     chat: room.chat.slice(-40),
@@ -158,8 +159,29 @@ function clearTimer(room) { clearTimeout(room.timer); room.timer = null; }
 function startDiscussion(room) {
   room.phase = 'discussion'; room.activeRole = null; room.actionPrompt = null;
   room.actionActors = []; room.actionIndex = 0;
+  room.discussionSkipVotes = new Set();
   setTimer(room, room.discussionSeconds * 1000);
   broadcast(room, 'game:phase', publicRoom(room));
+}
+
+function discussionSkipState(room) {
+  // Keep the electorate stable across reconnects. Bots do not vote or count.
+  const humans = [...room.players.values()].filter(player => !player.isBot);
+  return {
+    votes: humans.filter(player => room.discussionSkipVotes?.has(player.id)).map(player => player.id),
+    eligibleCount: humans.length,
+    required: Math.floor(humans.length / 2) + 1,
+  };
+}
+
+function setDiscussionSkipVote(room, playerId, agree) {
+  if (room.phase !== 'discussion') return;
+  room.discussionSkipVotes ??= new Set();
+  if (agree) room.discussionSkipVotes.add(playerId);
+  else room.discussionSkipVotes.delete(playerId);
+  const progress = discussionSkipState(room);
+  broadcast(room, 'discussion:skip-state', progress);
+  if (progress.votes.length >= progress.required) enterVoting(room);
 }
 
 function randomChoice(items) { return items[Math.floor(Math.random() * items.length)]; }
@@ -425,6 +447,11 @@ function timerExpired(room) {
 
 function skipTestPhase(room) {
   if (!room.hasTestBots || !['role_reveal', 'night', 'discussion', 'voting', 'vote_reveal'].includes(room.phase)) return false;
+  // Older clients' host shortcut is also one consent, never a majority bypass.
+  if (room.phase === 'discussion') {
+    setDiscussionSkipVote(room, room.hostId, true);
+    return true;
+  }
   clearTimer(room); room.timerEndsAt = null; room.remainingMs = 0;
   if (room.phase === 'role_reveal') beginNight(room);
   else if (room.phase === 'night') {
@@ -439,8 +466,7 @@ function skipTestPhase(room) {
         } else completeActor(room, prompt.playerId);
       } else nextAction(room);
     }
-  } else if (room.phase === 'discussion') enterVoting(room);
-  else if (room.phase === 'voting') {
+  } else if (room.phase === 'voting') {
     for (const bot of room.players.values()) if (bot.isBot) castBotVote(room, bot);
     for (const id of room.players.keys()) if (!room.votes.has(id)) room.votes.set(id, null);
     resolveVotes(room);
@@ -561,6 +587,11 @@ function handle(ws, event, data) {
     const targetId = data.targetId === null ? null : room.players.has(data.targetId) && data.targetId !== ws.playerId ? data.targetId : null;
     room.votes.set(ws.playerId, targetId); broadcast(room, 'room:state', publicRoom(room));
     if (room.votes.size === room.players.size) beginVoteReveal(room, '모두가 투표를 완료했습니다.'); return;
+  }
+  if (event === 'discussion:skip-vote') {
+    if (room.phase !== 'discussion') return emitError(ws, '토론 중에만 종료에 동의할 수 있습니다.');
+    if (player.isBot || !player.connected || player.socket !== ws || typeof data.agree !== 'boolean') return emitError(ws, '올바른 토론 종료 요청이 아닙니다.');
+    setDiscussionSkipVote(room, ws.playerId, data.agree); return;
   }
   if (event === 'discussion:extend' && room.phase === 'discussion') {
     if (room.extensionUsed.has(ws.playerId)) return emitError(ws, '1분 연장권을 이미 사용하셨습니다.');

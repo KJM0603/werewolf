@@ -45,6 +45,7 @@ function handleMessage(event,data) {
   if(event==='night:turn-ended'){state.prompt=null;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
   if(event==='night:info'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push({title:ROLE_INFO[data.role]?.name||'밤 정보',currentRole:data.currentRole,text:data.loneWolf?'혼자 깨어났습니다. 중앙 카드 한 장을 직접 선택해 확인하세요.':data.role==='mason'?`함께 깨어난 프리메이슨: ${data.others?.length?data.others.join(', '):'없음'}`:data.others?.length?`함께 깨어난 늑대: ${data.others.join(', ')}`:data.wolves?`늑대인간: ${data.wolves.length?data.wolves.join(', '):'없음'}`:data.currentRole?`현재 역할: ${ROLE_INFO[data.currentRole]?.name||data.currentRole}`:'확인할 정보가 없습니다.'});render();return;}
   if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();if(!data.replay)notify(data.text||data.roles?.join(' · ')||data.title);return;}
+  if(event==='discussion:skip-state'){if(state.room){state.room.discussionSkip=data;updateDiscussionSkipControls();}return;}
   if(event==='chat:message'){state.chat.push(data);state.chat=state.chat.slice(-40);if(state.room)state.room.chat=state.chat;appendChatMessage(data);return;}
   if(event==='game:result'){state.room.result=data;state.room.phase='result';state.prompt=null;state.resultSplashComplete=false;syncMediaToPhase();const splashId=++state.resultSplashId;render();setTimeout(()=>{if(state.resultSplashId===splashId){state.resultSplashComplete=true;render();}},3000);return;}
   if(event.startsWith('webrtc:')){handleSignal(event,data);return;}
@@ -163,8 +164,25 @@ function resultPanel() {
 function discussionView(room) {
   const hasExtension=!(room.extensionUsed||[]).includes(state.playerId);
   const seconds=Math.ceil(Math.max(0,(room.timerEndsAt||state.timerNow)-state.timerNow)/1000);
-  app.innerHTML=`<div class="game-shell discussion-shell"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions">${room.hasTestBots&&hostView()?'<button class="btn ghost small" id="skip-phase">토론 건너뛰기</button>':''}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock"><div class="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
+  app.innerHTML=`<div class="game-shell discussion-shell"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions">${discussionSkipMarkup(room)}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock"><div class="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
   bindGameEvents();bindAudio();bindVideo();bindMediaElements();scrollChat();
+}
+
+function discussionSkipMarkup(room) {
+  const progress = room.discussionSkip || { votes: [], eligibleCount: 0, required: 1 };
+  const agreed = progress.votes.includes(state.playerId);
+  return `<div class="discussion-skip"><button class="btn ghost small" id="discussion-skip-vote" aria-pressed="${agreed}">${agreed?'토론 종료 동의 취소':'토론 종료 동의'}</button><small id="discussion-skip-count" role="status" aria-live="polite">동의 ${progress.votes.length}/${progress.eligibleCount}명 · ${progress.required}명 필요</small></div>`;
+}
+function updateDiscussionSkipControls() {
+  const button = document.querySelector('#discussion-skip-vote');
+  const count = document.querySelector('#discussion-skip-count');
+  const progress = state.room?.discussionSkip;
+  if (!button || !count || !progress) return;
+  const agreed = progress.votes.includes(state.playerId);
+  button.disabled = false;
+  button.setAttribute('aria-pressed', String(agreed));
+  button.textContent = agreed ? '토론 종료 동의 취소' : '토론 종료 동의';
+  count.textContent = `동의 ${progress.votes.length}/${progress.eligibleCount}명 · ${progress.required}명 필요`;
 }
 
 function gameView() {
@@ -217,7 +235,7 @@ function changeRole(role,delta) {
   if(!send('roles:adjust',{role,delta})){state.rolesPending=false;render();}
 }
 function bindGameEvents() {
-  const room=state.room;const phase=room?.phase;const skipLabels={role_reveal:'역할 확인 마치기',night:'밤 전체 건너뛰기',discussion:'토론 건너뛰기',voting:'AI 투표 완료하고 결과 보기',vote_reveal:'결과 바로 보기'};
+  const room=state.room;const phase=room?.phase;const skipLabels={role_reveal:'역할 확인 마치기',night:'밤 전체 건너뛰기',voting:'AI 투표 완료하고 결과 보기',vote_reveal:'결과 바로 보기'};
   if(room?.hasTestBots&&hostView()&&skipLabels[phase]&&!document.querySelector('#skip-phase')){const button=document.createElement('button');button.type='button';button.id='skip-phase';button.className='btn ghost small';button.textContent=skipLabels[phase];document.querySelector('.discussion-top-actions,.game-top .inline-actions')?.prepend(button);}
   document.querySelector('#copy-code')?.addEventListener('click',copyCode);
   document.querySelector('#hide-role')?.addEventListener('click',()=>{state.privateVisible=!state.privateVisible;render();});
@@ -226,6 +244,7 @@ function bindGameEvents() {
   document.querySelector('#skip-phase')?.addEventListener('click',(event)=>{event.currentTarget.disabled=true;event.currentTarget.textContent='다음 단계로 이동 중…';if(!send('game:skip-phase',{phase,nightTurn:room.nightTurn})){event.currentTarget.disabled=false;event.currentTarget.textContent=skipLabels[phase];}});
   document.querySelector('#resume-game')?.addEventListener('click',()=>send('game:resume'));
   document.querySelector('#resume-game-overlay')?.addEventListener('click',()=>send('game:resume'));
+  document.querySelector('#discussion-skip-vote')?.addEventListener('click',(event)=>{event.currentTarget.disabled=true;const agree=!(state.room?.discussionSkip?.votes||[]).includes(state.playerId);if(!send('discussion:skip-vote',{agree}))updateDiscussionSkipControls();});
   document.querySelector('#extend-time')?.addEventListener('click',()=>send('discussion:extend'));
   document.querySelectorAll('[data-center]').forEach(btn=>btn.addEventListener('click',()=>{const i=Number(btn.dataset.center);if(state.selectedCenter.includes(i))state.selectedCenter=state.selectedCenter.filter(x=>x!==i);else if((state.prompt?.targetRole||state.prompt?.role)==='seer'){if(state.selectedCenter.length<2)state.selectedCenter.push(i);}else state.selectedCenter=[i];render();}));
   document.querySelector('#night-target')?.addEventListener('change',(e)=>state.selectedTarget=e.target.value||null);

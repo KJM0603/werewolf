@@ -124,6 +124,9 @@ body:has(.discussion-shell) { overflow:hidden; }
 .discussion-clock strong { color:#f1ecff; font-size:27px; font-variant-numeric:tabular-nums; letter-spacing:.04em; }
 .discussion-clock span { color:#a39eae; font-size:10px; margin-top:5px; }
 .discussion-top-actions { display:flex; align-items:center; justify-content:flex-end; gap:9px; }
+.discussion-skip { display:flex; flex-direction:column; align-items:center; gap:4px; flex-shrink:0; }
+.discussion-skip small { color:#a39eae; font-size:10px; white-space:nowrap; }
+.discussion-skip button[aria-pressed="true"] { border-color:#b9a0ff; color:#ddceff; background:#30253f; }
 .discussion-main { flex:1; min-height:0; display:flex; flex-direction:column; gap:10px; }
 .discussion-video-wrap { flex:1; min-height:0; }
 .discussion-video-grid { width:100%; height:100%; margin:0; grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr)); grid-auto-rows:minmax(0,1fr); align-content:stretch; }
@@ -158,7 +161,9 @@ body:has(.discussion-shell) { overflow:hidden; }
   .game-top { align-items:flex-start; }
   .room-code { padding:8px 9px; }
   .discussion-shell { padding:8px; gap:7px; }
-  .discussion-topbar { flex-basis:48px; }
+  .discussion-topbar { flex-basis:62px; gap:6px; grid-template-columns:auto auto minmax(0,1fr); }
+  .discussion-skip .btn { font-size:10px; padding:7px 8px; }
+  .discussion-skip small { font-size:9px; }
   .discussion-topbar .brand { font-size:11px; gap:6px; }
   .discussion-topbar .brand-mark { width:28px; height:28px; }
   .discussion-clock strong { font-size:22px; }

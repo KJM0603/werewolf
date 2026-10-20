@@ -50,3 +50,17 @@ test('failed chat send preserves the unsent draft',()=>{
   f.bindGameEvents();submit({preventDefault(){}});
   assert.equal(input.value,'재전송할 내용');
 });
+
+test('discussion consent updates only its controls, leaving chat and video mounted',()=>{
+  const button={disabled:true,setAttribute(key,value){this[key]=value;}},count={};
+  const input={value:'아직 설명 중입니다.'};
+  const nodes={'#discussion-skip-vote':button,'#discussion-skip-count':count,'#chat-input':input};
+  const f=ui({querySelector:selector=>nodes[selector]||null});
+  vm.runInContext('render=()=>{throw new Error("Full render during consent update");};',f.context);
+  f.state.playerId='p0';f.state.room={phase:'discussion'};
+  f.handleMessage('discussion:skip-state',{votes:['p0'],eligibleCount:4,required:3});
+  assert.equal(button.textContent,'토론 종료 동의 취소');
+  assert.equal(button['aria-pressed'],'true');assert.equal(button.disabled,false);
+  assert.equal(count.textContent,'동의 1/4명 · 3명 필요');
+  assert.equal(input.value,'아직 설명 중입니다.');
+});

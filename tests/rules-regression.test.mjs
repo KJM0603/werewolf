@@ -15,7 +15,7 @@ function fixture(roles, centerRoles = ['villager', 'villager', 'villager']) {
     setTimeout: (callback, ms) => ({ callback, ms }), clearTimeout() {} });
   vm.runInContext(`${source}
     globalThis.api={rooms,handle,beginNight,beginAction,applyNightAction,resolveVotes,
-    roleForPlayer,timerExpired,publicRoom,startGame,defaultRoles,enterVoting};`, context);
+    roleForPlayer,timerExpired,publicRoom,startGame,defaultRoles,enterVoting,startDiscussion,closeSocket};`, context);
   const api = context.api;
   function socket(id) {
     const messages = [];
@@ -45,6 +45,74 @@ function fixture(roles, centerRoles = ['villager', 'villager', 'villager']) {
 }
 const winner=(result,id)=>result.winners.find(p=>p.id===id).win;
 const results=(f,id)=>f.messages(id).filter(m=>m.event==='night:result');
+
+for (const n of [3,4,5,6,7,8,9,10]) test(`discussion requires a strict majority of ${n} humans`,()=>{
+  const f=fixture(Array(n).fill('villager'));f.startDiscussion(f.room);
+  const required=Math.floor(n/2)+1, timer=f.room.timer;
+  for(let i=0;i<required-1;i++)f.handle(f.room.players.get(`p${i}`).socket,'discussion:skip-vote',{agree:true});
+  assert.equal(f.room.phase,'discussion');assert.equal(f.room.timer,timer);
+  assert.equal(f.publicRoom(f.room).discussionSkip.votes.length,required-1);
+  f.handle(f.room.players.get(`p${required-1}`).socket,'discussion:skip-vote',{agree:true});
+  assert.equal(f.room.phase,'voting');assert.equal(f.room.votes.size,0);
+  const votingTimer=f.room.timer;
+  f.handle(f.room.players.get('p0').socket,'discussion:skip-vote',{agree:true});
+  assert.equal(f.room.timer,votingTimer,'Late requests must not restart voting');
+});
+test('discussion consent is idempotent, retractable, and excludes bots',()=>{
+  const f=fixture(Array(5).fill('villager'));
+  f.room.players.get('p3').isBot=true;f.room.players.get('p4').isBot=true;f.room.hasTestBots=true;
+  f.startDiscussion(f.room);
+  const ws=f.room.players.get('p1').socket;
+  f.handle(ws,'discussion:skip-vote',{agree:true});
+  f.handle(ws,'discussion:skip-vote',{agree:true});
+  assert.equal(f.publicRoom(f.room).discussionSkip.votes.length,1);
+  assert.equal(f.publicRoom(f.room).discussionSkip.required,2);
+  f.handle(ws,'discussion:skip-vote',{agree:false});
+  assert.equal(f.publicRoom(f.room).discussionSkip.votes.length,0);
+  f.handle(f.room.players.get('p3').socket,'discussion:skip-vote',{agree:true});
+  assert.equal(f.publicRoom(f.room).discussionSkip.votes.length,0);
+  f.handle(ws,'discussion:skip-vote',{agree:'true'});
+  assert.equal(f.publicRoom(f.room).discussionSkip.votes.length,0);
+});
+test('disconnect and reconnect preserve electorate and consent',()=>{
+  const f=fixture(Array(4).fill('villager'));f.startDiscussion(f.room);
+  f.handle(f.room.players.get('p1').socket,'discussion:skip-vote',{agree:true});
+  f.closeSocket(f.room.players.get('p1').socket);
+  assert.equal(f.publicRoom(f.room).discussionSkip.eligibleCount,4);
+  const joined=f.reconnect('p1').find(m=>m.event==='room:joined');
+  assert.deepEqual(joined.data.room.discussionSkip,{votes:['p1'],eligibleCount:4,required:3});
+});
+test('pause rejects consent but resume retains existing votes; a new discussion resets votes',()=>{
+  const f=fixture(Array(3).fill('villager'));f.startDiscussion(f.room);
+  f.handle(f.room.players.get('p0').socket,'discussion:skip-vote',{agree:true});
+  f.room.players.get('p2').connected=false;
+  f.handle(f.room.players.get('p0').socket,'game:pause',{});
+  assert.equal(f.room.phase,'paused');
+  f.handle(f.room.players.get('p1').socket,'discussion:skip-vote',{agree:true});
+  assert.equal(f.publicRoom(f.room).discussionSkip.votes.length,1);
+  f.handle(f.room.players.get('p0').socket,'game:resume',{});
+  assert.equal(f.publicRoom(f.room).discussionSkip.votes.length,1);
+  f.startDiscussion(f.room);
+  assert.equal(f.publicRoom(f.room).discussionSkip.votes.length,0);
+});
+test('mixed human/bot rooms cannot bypass consent through the old host shortcut',()=>{
+  const f=fixture(Array(4).fill('villager'));
+  f.room.players.get('p3').isBot=true;f.room.hasTestBots=true;f.startDiscussion(f.room);
+  const timer=f.room.timer;
+  f.handle(f.room.players.get('p0').socket,'game:skip-phase',{phase:'discussion',nightTurn:null});
+  assert.equal(f.room.phase,'discussion');assert.equal(f.room.timer,timer);
+  assert.equal(f.publicRoom(f.room).discussionSkip.votes.length,1);
+  f.handle(f.room.players.get('p1').socket,'discussion:skip-vote',{agree:true});
+  assert.equal(f.room.phase,'voting');
+});
+test('a single human with bots can consent to end discussion',()=>{
+  const f=fixture(Array(3).fill('villager'));
+  f.room.players.get('p1').isBot=true;f.room.players.get('p2').isBot=true;
+  f.startDiscussion(f.room);
+  assert.equal(f.publicRoom(f.room).discussionSkip.required,1);
+  f.handle(f.room.players.get('p0').socket,'discussion:skip-vote',{agree:true});
+  assert.equal(f.room.phase,'voting');
+});
 
 for(let n=3;n<=10;n++) test(`PASS baseline: ${n} players receive N+3 unique cards`,()=>{
   const f=fixture(Array(n).fill('villager'));
