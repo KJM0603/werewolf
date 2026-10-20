@@ -259,6 +259,7 @@ function nextAction(room) {
 
 function completeActor(room, playerId) {
   const role = room.activeRole;
+  privateSend(room, playerId, 'night:turn-ended', {});
   room.actionDone.add(`${role}:${playerId}`);
   room.actionIndex += 1;
   const nextPlayer = room.actionActors[room.actionIndex];
@@ -301,7 +302,7 @@ function startGame(room) {
 function currentActors(room) { return room.actionActors; }
 
 function applyNightAction(room, playerId, data) {
-  if (room.phase !== 'night' || room.actionPrompt?.playerId !== playerId) return send(room.players.get(playerId)?.socket, 'error', { message: '현재 차례가 아닙니다.' });
+  if (room.phase !== 'night' || room.actionPrompt?.playerId !== playerId || room.actionPrompt.role === 'doppelganger-copy' && room.actionPrompt.targetRole !== room.copyRoles.get(playerId) || room.actionPrompt.role !== 'doppelganger-copy' && room.actionPrompt.role !== room.activeRole) return send(room.players.get(playerId)?.socket, 'error', { message: '현재 차례가 아닙니다.' });
   const prompt = room.actionPrompt;
   const actingAs = prompt.role;
   const target = (id) => room.players.has(id) && id !== playerId;

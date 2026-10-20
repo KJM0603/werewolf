@@ -30,7 +30,10 @@ function handleMessage(event,data) {
   if(event==='error'){state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
   if(event==='room:joined') { state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;saveSession();state.error='';syncPeers();render();return; }
   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
-    const previous=state.room?.phase;state.room=data;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
+    const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
+    // Night prompts are private and may otherwise remain visible after their
+    // owner's turn times out. Keep controls only while their role is active.
+    if(data.phase!=='night'||data.nightTurn!==previousNightTurn&&state.prompt&&(state.prompt.targetRole||state.prompt.role)!==data.nightTurn)state.prompt=null;
     if(previous==='role_reveal'&&data.phase==='night')state.privateVisible=false;
     if(previous!==data.phase && data.phase==='discussion')notify('토론을 시작합니다.');
     if(previous!==data.phase && data.phase==='voting')notify('투표해 주세요.');
@@ -39,6 +42,7 @@ function handleMessage(event,data) {
   }
   if(event==='role:private'){state.privateRole=data.role;state.privateVisible=true;render();return;}
   if(event==='night:prompt'){state.prompt=data;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
+  if(event==='night:turn-ended'){state.prompt=null;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
   if(event==='night:info'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push({title:ROLE_INFO[data.role]?.name||'밤 정보',currentRole:data.currentRole,text:data.loneCenter?`혼자 있는 늑대입니다. 중앙 카드: ${data.loneCenter.map(r=>ROLE_INFO[r]?.name||r).join(', ')}`:data.role==='mason'?`함께 깨어난 프리메이슨: ${data.others?.length?data.others.join(', '):'없음'}`:data.others?.length?`함께 깨어난 늑대: ${data.others.join(', ')}`:data.wolves?`늑대인간: ${data.wolves.length?data.wolves.join(', '):'없음'}`:data.currentRole?`현재 역할: ${ROLE_INFO[data.currentRole]?.name||data.currentRole}`:'확인할 정보가 없습니다.'});render();return;}
   if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();notify(data.text||data.roles?.join(' · ')||data.title);return;}
   if(event==='chat:message'){state.chat.push(data);if(state.room)state.room.chat=state.chat.slice(-40);render();return;}
