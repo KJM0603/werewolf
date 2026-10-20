@@ -97,10 +97,10 @@ h1 { font-size:clamp(38px, 7vw, 66px); letter-spacing:-.065em; line-height:1.08;
 .chat-size input { width:110px; max-width:100%; min-width:50px; accent-color:#b9a0ff; cursor:ew-resize; }
 .chat-box { display:flex; flex:1; min-height:0; flex-direction:column; gap:8px; overflow:auto; padding:10px 2px; overflow-anchor:none; }
 .chat-box > * { flex-shrink:0; }
-.chat-msg { font-size:12px; line-height:1.5; color:#c7c4ce; overflow-wrap:anywhere; }
+.chat-msg { font-size:16px; line-height:1.65; color:#dedbe5; overflow-wrap:anywhere; }
 .chat-msg strong { color:#bfaef1; margin-right:6px; }
 .chat-form { display:flex; flex-shrink:0; gap:7px; margin-top:8px; }
-.chat-form .input { padding:10px 11px; font-size:12px; }
+.chat-form .input { padding:10px 11px; font-size:16px; }
 .chat-form .btn { padding:10px 12px; }
 .submissions { color:#85828f; font-size:11px; margin-top:10px; }
 .toast { position:fixed; z-index:20; bottom:24px; left:50%; transform:translate(-50%,18px); opacity:0; pointer-events:none; background:#f1edfa; color:#191620; border-radius:11px; padding:12px 16px; font-size:13px; box-shadow:0 10px 36px #0006; transition:.22s; max-width:calc(100vw - 32px); }
@@ -184,7 +184,7 @@ body:has(.discussion-shell) { overflow:hidden; }
   .discussion-chat .chat-size { gap:4px; }
   .discussion-chat .chat-size input { width:70px; min-width:30px; }
   .discussion-chat .chat-panel { padding:8px; }
-  .discussion-chat .chat-box { font-size:10px; }
+  .discussion-chat .chat-box { font-size:16px; }
   .discussion-tools { gap:6px; }
   .discussion-tools .btn { font-size:10px; padding:9px 5px; }
   .discussion-tools small { font-size:9px; }
