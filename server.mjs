@@ -614,7 +614,7 @@ function handle(ws, event, data) {
   }
   if (event === 'game:pause' && ws.playerId === room.hostId && room.phase !== 'lobby' && room.phase !== 'result' && room.phase !== 'paused') {
     room.remainingMs = room.timerEndsAt ? Math.max(0, room.timerEndsAt - Date.now()) : room.remainingMs; clearTimer(room); room.timerEndsAt = null;
-    room.pauseReason = '참가자의 연결이 끊겼습니다.'; room.previousPhase = room.phase; room.phase = 'paused';
+    room.pauseReason = '방장이 게임을 일시정지했습니다.'; room.previousPhase = room.phase; room.phase = 'paused';
     broadcast(room, 'game:paused', publicRoom(room)); return;
   }
   if (event === 'game:resume' && ws.playerId === room.hostId && room.phase === 'paused') {
