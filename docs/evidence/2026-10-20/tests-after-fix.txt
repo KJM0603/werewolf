@@ -1,0 +1,62 @@
+
+> one-night-werewolf-webrtc@0.1.0 test
+> node --test tests/*.test.mjs
+
+✔ before selection, the lone wolf receives only card backs and no center identities (5.2531ms)
+✔ selecting center 1 reveals only that card privately, once (3.0309ms)
+✔ selecting center 2 reveals only that card privately, once (2.0114ms)
+✔ selecting center 3 reveals only that card privately, once (1.3698ms)
+✔ invalid selection and another player cannot reveal a card or consume the turn (1.2771ms)
+✔ multiple waking wolves have no center-card permission: werewolf, werewolf, villager (1.1367ms)
+✔ multiple waking wolves have no center-card permission: werewolf, doppelganger, villager (1.0345ms)
+✔ timeout reveals nothing; an AI lone wolf chooses exactly one valid index (3.6004ms)
+✔ UI selects a single back, replaces its selection, and submits only its index (3.4613ms)
+✔ PASS baseline: 3 players receive N+3 unique cards (3.7719ms)
+✔ PASS baseline: 4 players receive N+3 unique cards (1.2716ms)
+✔ PASS baseline: 5 players receive N+3 unique cards (1.3198ms)
+✔ PASS baseline: 6 players receive N+3 unique cards (1.3006ms)
+✔ PASS baseline: 7 players receive N+3 unique cards (1.2669ms)
+✔ PASS baseline: 8 players receive N+3 unique cards (1.3697ms)
+✔ PASS baseline: 9 players receive N+3 unique cards (1.977ms)
+✔ PASS baseline: 10 players receive N+3 unique cards (1.3858ms)
+✔ PASS baseline: seer sees two distinct centers privately and cannot act twice (2.3572ms)
+✔ PASS baseline: seer cannot inspect a duplicate center (1.1368ms)
+✔ PASS baseline: robber swaps and sees new role; original owner still acts (1.4491ms)
+✔ PASS baseline: troublemaker cannot swap self (0.9751ms)
+✔ PASS baseline: drunk swaps without seeing the card and preserves ownership (1.1512ms)
+✔ PASS baseline: insomniac sees current card (1.6768ms)
+✔ public night deadlines do not change after early completion or a copied action (1.0685ms)
+✔ resume resends a private prompt to an actor who reconnected while paused (1.9598ms)
+✔ robber sees a doppelganger card without learning its copied role (1.1096ms)
+✔ PASS baseline: masons identify each other privately (1.0422ms)
+✔ PASS baseline: minion knows wolves but wolves do not learn minion (0.9948ms)
+✔ PASS baseline: victory wolf killed (1.2392ms)
+✔ PASS baseline: victory wolf survives (0.9194ms)
+✔ PASS baseline: victory no wolf no death (0.9706ms)
+✔ PASS baseline: victory no wolf villager killed (1.6018ms)
+✔ PASS baseline: victory tanner blocks wolf win (0.8901ms)
+✔ PASS baseline: victory minion survives without wolf (1.0174ms)
+✔ PASS baseline: victory minion dies without wolf (0.9611ms)
+✔ PASS baseline: victory hunter kills wolf (0.9431ms)
+✔ PASS baseline: victory wolf and tanner tie (0.9022ms)
+✔ PASS baseline: nonhost cannot pause; paused votes and actions are rejected (1.1468ms)
+✔ PASS baseline: votes are secret before result and duplicate votes cannot change target (1.0194ms)
+✔ BUG-1: reconnect must not reveal a drunk player new secret card (1.1203ms)
+✔ BUG-2: doppelganger who robs a wolf must win as final wolf (1.3311ms)
+✔ BUG-3: exchanging doppelganger wolf away must switch original player to village team (1.4778ms)
+✔ BUG-4: copied minion must receive wolf information in doppelganger phase (1.0973ms)
+✔ BUG-5: observing a doppelganger card must reveal card identity, not hidden copy choice (1.2846ms)
+✔ BUG-6: reconnect must restore previously granted private seer result (1.2878ms)
+✔ BUG-7: selected roles in center must not be discoverable from omitted public night turns (1.9813ms)
+✔ PASS documented MVP variation: copied drunk timeout is treated as no action (1.384ms)
+✔ BUG-9: pausing then resuming must restore the active browser action controls (2.4121ms)
+✔ private history is replayed once per reconnect and remains readable during discussion (4.5298ms)
+✔ copied minion gets no duplicate information during normal minion phase (1.2051ms)
+ℹ tests 50
+ℹ suites 0
+ℹ pass 50
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 404.6831

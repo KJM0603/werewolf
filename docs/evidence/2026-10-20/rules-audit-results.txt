@@ -1,0 +1,202 @@
+✔ PASS baseline: 3 players receive N+3 unique cards (3.923ms)
+✔ PASS baseline: 4 players receive N+3 unique cards (1.4195ms)
+✔ PASS baseline: 5 players receive N+3 unique cards (1.3166ms)
+✔ PASS baseline: 6 players receive N+3 unique cards (1.3241ms)
+✔ PASS baseline: 7 players receive N+3 unique cards (1.3194ms)
+✔ PASS baseline: 8 players receive N+3 unique cards (1.5149ms)
+✔ PASS baseline: 9 players receive N+3 unique cards (2.2261ms)
+✔ PASS baseline: 10 players receive N+3 unique cards (1.3989ms)
+✔ PASS baseline: seer sees two distinct centers privately and cannot act twice (2.6656ms)
+✔ PASS baseline: seer cannot inspect a duplicate center (1.2469ms)
+✔ PASS baseline: robber swaps and sees new role; original owner still acts (1.3427ms)
+✔ PASS baseline: troublemaker cannot swap self (1.1175ms)
+✔ PASS baseline: drunk swaps without seeing the card and preserves ownership (1.2781ms)
+✔ PASS baseline: insomniac sees current card (1.7293ms)
+✔ PASS baseline: masons identify each other privately (1.0257ms)
+✔ PASS baseline: minion knows wolves but wolves do not learn minion (0.9227ms)
+✔ PASS baseline: victory wolf killed (1.3277ms)
+✔ PASS baseline: victory wolf survives (1.1477ms)
+✔ PASS baseline: victory no wolf no death (0.9867ms)
+✔ PASS baseline: victory no wolf villager killed (0.9061ms)
+✔ PASS baseline: victory tanner blocks wolf win (0.9635ms)
+✔ PASS baseline: victory minion survives without wolf (1.127ms)
+✔ PASS baseline: victory minion dies without wolf (1.5932ms)
+✔ PASS baseline: victory hunter kills wolf (0.9062ms)
+✔ PASS baseline: victory wolf and tanner tie (0.9362ms)
+✔ PASS baseline: nonhost cannot pause; paused votes and actions are rejected (1.947ms)
+✔ PASS baseline: votes are secret before result and duplicate votes cannot change target (1.1084ms)
+✖ BUG-1: reconnect must not reveal a drunk player new secret card (2.2084ms)
+✖ BUG-2: doppelganger who robs a wolf must win as final wolf (1.7273ms)
+✖ BUG-3: exchanging doppelganger wolf away must switch original player to village team (1.8216ms)
+✖ BUG-4: copied minion must receive wolf information in doppelganger phase (1.4421ms)
+✖ BUG-5: observing a doppelganger card must reveal card identity, not hidden copy choice (1.6737ms)
+✖ BUG-6: reconnect must restore previously granted private seer result (1.6772ms)
+✖ BUG-7: selected roles in center must not be discoverable from omitted public night turns (1.5615ms)
+✔ PASS documented MVP variation: copied drunk timeout is treated as no action (1.2549ms)
+✖ BUG-9: pausing then resuming must restore the active browser action controls (2.8476ms)
+ℹ tests 36
+ℹ suites 0
+ℹ pass 28
+ℹ fail 8
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 246.8636
+
+✖ failing tests:
+
+test at outputs\rules-audit.test.mjs:126:1
+✖ BUG-1: reconnect must not reveal a drunk player new secret card (2.2084ms)
+  AssertionError [ERR_ASSERTION]: Must restore last known role, not hidden final card
+  
+  'tanner' !== 'drunk'
+  
+      at TestContext.<anonymous> (file:///C:/Users/SSAFY/Documents/Codex/2026-10-20/https-github-com-kjm0603-werewolf-git/outputs/rules-audit.test.mjs:130:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 'tanner',
+    expected: 'drunk',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at outputs\rules-audit.test.mjs:132:1
+✖ BUG-2: doppelganger who robs a wolf must win as final wolf (1.7273ms)
+  AssertionError [ERR_ASSERTION]: Final wolf must win with wolf team
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///C:/Users/SSAFY/Documents/Codex/2026-10-20/https-github-com-kjm0603-werewolf-git/outputs/rules-audit.test.mjs:139:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at outputs\rules-audit.test.mjs:141:1
+✖ BUG-3: exchanging doppelganger wolf away must switch original player to village team (1.8216ms)
+  AssertionError [ERR_ASSERTION]: Final villager must win with village team
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///C:/Users/SSAFY/Documents/Codex/2026-10-20/https-github-com-kjm0603-werewolf-git/outputs/rules-audit.test.mjs:148:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at outputs\rules-audit.test.mjs:150:1
+✖ BUG-4: copied minion must receive wolf information in doppelganger phase (1.4421ms)
+  AssertionError [ERR_ASSERTION]: Copied minion should know wolves before normal werewolf phase
+      at TestContext.<anonymous> (file:///C:/Users/SSAFY/Documents/Codex/2026-10-20/https-github-com-kjm0603-werewolf-git/outputs/rules-audit.test.mjs:153:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at outputs\rules-audit.test.mjs:156:1
+✖ BUG-5: observing a doppelganger card must reveal card identity, not hidden copy choice (1.6737ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /도플갱어/. Input:
+  
+  'p0님의 역할은 늑대인간입니다.'
+  
+      at TestContext.<anonymous> (file:///C:/Users/SSAFY/Documents/Codex/2026-10-20/https-github-com-kjm0603-werewolf-git/outputs/rules-audit.test.mjs:159:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 'p0님의 역할은 늑대인간입니다.',
+    expected: /도플갱어/,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at outputs\rules-audit.test.mjs:161:1
+✖ BUG-6: reconnect must restore previously granted private seer result (1.6772ms)
+  AssertionError [ERR_ASSERTION]: Seer knowledge is lost on refresh
+      at TestContext.<anonymous> (file:///C:/Users/SSAFY/Documents/Codex/2026-10-20/https-github-com-kjm0603-werewolf-git/outputs/rules-audit.test.mjs:165:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at outputs\rules-audit.test.mjs:168:1
+✖ BUG-7: selected roles in center must not be discoverable from omitted public night turns (1.5615ms)
+  AssertionError [ERR_ASSERTION]: Public phase skips seer and proves seer is in center
+      at TestContext.<anonymous> (file:///C:/Users/SSAFY/Documents/Codex/2026-10-20/https-github-com-kjm0603-werewolf-git/outputs/rules-audit.test.mjs:173:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at outputs\rules-audit.test.mjs:180:1
+✖ BUG-9: pausing then resuming must restore the active browser action controls (2.8476ms)
+  AssertionError [ERR_ASSERTION]: Pause discards prompt and resume never sends it again
+      at TestContext.<anonymous> (file:///C:/Users/SSAFY/Documents/Codex/2026-10-20/https-github-com-kjm0603-werewolf-git/outputs/rules-audit.test.mjs:191:10)
+      at Test.runInAsyncScope (node:async_hooks:227:14)
+      at Test.run (node:internal/test_runner/test:1382:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:960:18)
+      at Test.postRun (node:internal/test_runner/test:1522:19)
+      at Test.run (node:internal/test_runner/test:1447:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: null,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

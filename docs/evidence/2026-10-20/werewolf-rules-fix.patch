@@ -1,0 +1,595 @@
+diff --git a/DESIGN.md b/DESIGN.md
+index 042da10..358bf69 100644
+--- a/DESIGN.md
++++ b/DESIGN.md
+@@ -23,7 +23,7 @@
+ 
+ 1. **대기실**: 방장이 인원과 역할 구성을 정하고 초대 코드를 공유한다. 참가자가 바뀌면 N+3장 권장 구성이 자동 갱신되며 방장이 원하는 역할로 수정할 수 있다. 모든 참가자가 준비하면 시작할 수 있다.
+ 2. **역할 배정/확인**: 게임 시작 시 서버가 선택된 N+3장 카드를 무작위로 섞어 참가자에게 한 장씩 비공개로 나누고, 나머지 3장은 중앙 카드로 둔다. 각 플레이어에게는 자기 카드만 보여준다.
+-3. **밤**: 서버가 역할별 순서를 진행한다. 해당 역할 플레이어에게만 행동 화면을 열고, 선택 결과는 서버에만 저장한다. 도플갱어는 첫 순서에 대상을 확인한 뒤 복사한 역할의 규칙에 따라 행동한다. 해당 역할이 없거나 행동할 수 없으면 자동으로 다음 단계로 넘어간다.
++3. **밤**: 서버가 선택된 덱의 역할별 순서를 진행한다. 해당 역할 플레이어에게만 행동 화면을 열고, 확인 결과는 개인별로 서버에 보관한다. 도플갱어는 첫 순서에 대상을 확인한 뒤 복사한 역할의 규칙에 따라 행동한다. 중앙에만 있는 역할도 같은 공개 순서와 시간을 유지하며, 행동 완료 여부로 단계를 조기 종료하지 않는다. 도플갱어 단계는 복사와 후속 행동을 포함해 15초, 나머지 단계는 5초이다.
+ 4. **낮 토론**: 모든 플레이어가 같은 토론 타이머를 본다. 음성 대화와 채팅을 사용할 수 있으며, 타이머 종료 후 투표로 이동한다.
+ 5. **투표**: 각자 한 명을 비밀리에 선택한다. 전원이 투표하거나 제한 시간이 끝나면 서버가 표를 한꺼번에 공개한다. 1표 초과를 받은 플레이어가 없으면 아무도 처치되지 않는다. 최다 득표 동점이면 동점자를 모두 처치한다. 미투표는 무효표로 처리한다.
+ 6. **결과**: 투표와 역할 공개 후, 서버가 최종 역할을 기준으로 승리 팀과 개인 승리 조건을 판정한다. 재시작 또는 새 방으로 이동할 수 있다.
+@@ -56,7 +56,7 @@
+ - 게임에 늑대인간이 없고 아무도 처치되지 않으면 마을 팀이 승리한다. 늑대인간이 없을 때 하수인이 살아남고 하수인 본인 이외의 플레이어가 처치되면 하수인이 승리한다. 사망자가 무두장이라도 조건을 충족한다.
+ - 무두장이는 자신이 처치되면 개인 승리한다. 무두장이가 처치된 판에서 늑대인간이 처치되지 않았다면 늑대인간 팀은 승리하지 않는다. 늑대인간도 함께 처치됐다면 마을 팀도 승리한다.
+ - 늑대인간이 없을 때 하수인 본인이 처치되면 하수인은 단독 승리 조건을 충족하지 않는다.
+-- 도플갱어는 복사한 역할의 승리 조건으로 판정한다.
++- 도플갱어 카드에는 복사한 역할의 승리 조건이 귀속된다. 카드를 교환했다면 참가자는 최종 소유 카드로 승패를 판정한다. 예언자·강도·불면증 환자의 카드 확인에는 카드에 적힌 역할만 표시하며, 도플갱어의 복사 선택을 추가로 공개하지 않는다.
+ 
+ ## 4. 화면 구성
+ 
+@@ -126,7 +126,8 @@ LOBBY → ROLE_REVEAL → NIGHT_ACTIONS → DISCUSSION → VOTING → RESULT
+ - 서버는 현재 역할 및 단계에 맞는 행동만 받는다.
+ - 한 플레이어는 한 단계에서 허용된 행동을 한 번만 제출한다.
+ - 결과 화면 전까지 다른 플레이어의 비밀 정보가 클라이언트에 전달되지 않는다.
+-- 재접속 시 서버의 현재 상태로 화면을 복원하고, 이전 행동을 중복 적용하지 않는다.
++- 재접속 시 마지막으로 확인이 허용된 역할과 개인 밤 정보만 복원하고, 몰래 바뀐 현재 카드를 공개하지 않는다. 개인 밤 정보는 토론·투표 화면에서도 다시 볼 수 있다. 이전 행동은 중복 적용하지 않는다.
++- 밤 행동 중 일시정지 후 재개하면 진행 중인 행동 프롬프트를 해당 참가자에게 다시 전송한다.
+ - 네트워크 단절만으로 게임은 멈추지 않는다. 방장만 일시정지/재개를 요청할 수 있다.
+ - 방장 일시정지 중에는 타이머, 역할 행동, 투표 마감이 진행되지 않고 모든 클라이언트의 음성 송수신이 음소거된다.
+ 
+diff --git a/package.json b/package.json
+index 979acbf..6fbe8a9 100644
+--- a/package.json
++++ b/package.json
+@@ -4,7 +4,8 @@
+   "private": true,
+   "type": "module",
+   "scripts": {
+-    "start": "node server.mjs"
++    "start": "node server.mjs",
++    "test": "node --test tests/*.test.mjs"
+   },
+   "engines": {
+     "node": ">=20"
+diff --git a/public/app.js b/public/app.js
+index 201dac4..e494853 100644
+--- a/public/app.js
++++ b/public/app.js
+@@ -28,12 +28,12 @@ function send(event,data={}) { if (!state.ws || state.ws.readyState!==WebSocket.
+ function rejoin() { const saved=JSON.parse(localStorage.getItem('one-night-session')||'null'); if(saved){reconnecting=true;send('room:reconnect',saved);} }
+ function handleMessage(event,data) {
+   if(event==='error'){state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
+-  if(event==='room:joined') { state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;saveSession();state.error='';syncPeers();render();return; }
++  if(event==='room:joined') { state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncPeers();render();return; }
+   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
+     const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
+     // Night prompts are private and may otherwise remain visible after their
+     // owner's turn times out. Keep controls only while their role is active.
+-    if(data.phase!=='night'||data.nightTurn!==previousNightTurn&&state.prompt&&(state.prompt.targetRole||state.prompt.role)!==data.nightTurn)state.prompt=null;
++    if(data.phase!=='paused'&&(data.phase!=='night'||data.nightTurn!==previousNightTurn&&state.prompt&&(state.prompt.role==='doppelganger-copy'&&data.nightTurn==='doppelganger'?'doppelganger':state.prompt.targetRole||state.prompt.role)!==data.nightTurn))state.prompt=null;
+     if(previous==='role_reveal'&&data.phase==='night')state.privateVisible=false;
+     if(previous!==data.phase && data.phase==='discussion')notify('토론을 시작합니다.');
+     if(previous!==data.phase && data.phase==='voting')notify('투표해 주세요.');
+@@ -44,7 +44,7 @@ function handleMessage(event,data) {
+   if(event==='night:prompt'){state.prompt=data;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
+   if(event==='night:turn-ended'){state.prompt=null;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];render();return;}
+   if(event==='night:info'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push({title:ROLE_INFO[data.role]?.name||'밤 정보',currentRole:data.currentRole,text:data.loneWolf?'혼자 깨어났습니다. 중앙 카드 한 장을 직접 선택해 확인하세요.':data.role==='mason'?`함께 깨어난 프리메이슨: ${data.others?.length?data.others.join(', '):'없음'}`:data.others?.length?`함께 깨어난 늑대: ${data.others.join(', ')}`:data.wolves?`늑대인간: ${data.wolves.length?data.wolves.join(', '):'없음'}`:data.currentRole?`현재 역할: ${ROLE_INFO[data.currentRole]?.name||data.currentRole}`:'확인할 정보가 없습니다.'});render();return;}
+-  if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();notify(data.text||data.roles?.join(' · ')||data.title);return;}
++  if(event==='night:result'){if(data.currentRole){state.privateRole=data.currentRole;state.privateVisible=true;}state.privateResults.push(data);state.prompt=null;render();if(!data.replay)notify(data.text||data.roles?.join(' · ')||data.title);return;}
+   if(event==='chat:message'){state.chat.push(data);if(state.room)state.room.chat=state.chat.slice(-40);render();return;}
+   if(event==='game:result'){state.room.result=data;state.room.phase='result';state.prompt=null;state.resultSplashComplete=false;const splashId=++state.resultSplashId;render();setTimeout(()=>{if(state.resultSplashId===splashId){state.resultSplashComplete=true;render();}},3000);return;}
+   if(event.startsWith('webrtc:')){handleSignal(event,data);return;}
+@@ -109,9 +109,14 @@ function nightPanel() {
+   return `<div class="section-kicker">NIGHT PHASE</div><h2 class="section-title">밤이 깊었습니다</h2><p class="section-copy">화면을 다른 사람에게 보여주지 마세요. 밤 행동은 정해진 순서로 진행됩니다.</p>${timerMarkup()}<div class="night-turn" role="status"><span>지금 차례</span><strong>${turn.emoji} ${turn.name}</strong></div>${roleCard()}${privateResult}${control}`;
+ }
+ 
++function privateNotes() {
++  const entries=state.privateResults.map(result=>`<p><strong>${esc(result.title||'밤 정보')}</strong><br>${esc(result.text||result.roles?.join(' · ')||'')}</p>`).join('');
++  return `<details id="private-notes"><summary>내 밤 정보 · 나만 보기</summary><p>마지막으로 확인한 역할: ${esc(ROLE_INFO[state.privateRole]?.name||'없음')}</p>${entries||'<p>추가로 확인한 밤 정보가 없습니다.</p>'}</details>`;
++}
++
+ function chatPanel() {
+   const chat=state.chat.length?state.chat:state.room.chat||[];
+-  return `<section class="panel chat-panel"><div class="section-kicker">TABLE TALK</div><h2 class="section-title" style="font-size:18px">채팅</h2><div class="chat-box" id="chat-box">${chat.map(m=>`<div class="chat-msg"><strong>${esc(m.name)}</strong>${esc(m.text)}</div>`).join('')||'<div class="muted">아직 대화가 없습니다.</div>'}</div><form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" placeholder="메시지 입력 · Enter로 전송" autocomplete="off"><button class="btn" aria-label="보내기">↗</button></form></section>`;
++  return `<section class="panel chat-panel"><div class="section-kicker">TABLE TALK</div><h2 class="section-title" style="font-size:18px">채팅</h2><div class="chat-box" id="chat-box">${privateNotes()}${chat.map(m=>`<div class="chat-msg"><strong>${esc(m.name)}</strong>${esc(m.text)}</div>`).join('')||'<div class="muted">아직 대화가 없습니다.</div>'}</div><form class="chat-form" id="chat-form"><input class="input" id="chat-input" maxlength="300" placeholder="메시지 입력 · Enter로 전송" autocomplete="off"><button class="btn" aria-label="보내기">↗</button></form></section>`;
+ }
+ 
+ function resultPanel() {
+diff --git a/server.mjs b/server.mjs
+index 45e35d1..f73767e 100644
+--- a/server.mjs
++++ b/server.mjs
+@@ -116,17 +116,34 @@ function broadcast(room, event, data) {
+ 
+ function privateSend(room, playerId, event, data) {
+   const p = room.players.get(playerId);
++  if (p && ['role:private', 'night:info', 'night:result'].includes(event)) {
++    p.knowledge ??= { role: room.startRoles.get(playerId), events: [] };
++    if (event === 'role:private') p.knowledge.role = data.role;
++    else {
++      p.knowledge.events.push({ event, data });
++      if (data.currentRole) p.knowledge.role = data.currentRole;
++    }
++  }
+   if (p?.socket) send(p.socket, event, data);
+ }
+ 
++function sendActionPrompt(room) {
++  const prompt = room.actionPrompt;
++  if (room.phase !== 'night' || !prompt) return;
++  privateSend(room, prompt.playerId, 'night:prompt', {
++    role: prompt.role, targetRole: prompt.targetRole || prompt.role,
++    players: [...room.players.values()].filter((p) => p.id !== prompt.playerId).map(({ id, name }) => ({ id, name })),
++    centerCount: room.center.length,
++  });
++}
++
+ function roleForPlayer(room, playerId) {
+   const owned = room.cards.find((c) => c.ownerId === playerId);
+   return owned ? owned.role === 'doppelganger' ? (owned.copyRole || 'doppelganger') : owned.role : null;
+ }
+ 
+ function playerCard(room, playerId) { return room.cards.find((c) => c.ownerId === playerId); }
+-function actorIds(room, role) { return [...room.players.keys()].filter((id) => room.startRoles.get(id) === role || room.startRoles.get(id) === 'doppelganger' && room.copyRoles.get(id) === role && !IMMEDIATE_COPY_ROLES.has(role)); }
+-function hasPendingActor(room, role) { return actorIds(room, role).some((id) => !room.actionDone.has(`${role}:${id}`)); }
++function actorIds(room, role) { return [...room.players.keys()].filter((id) => room.startRoles.get(id) === role || room.startRoles.get(id) === 'doppelganger' && room.copyRoles.get(id) === role && !IMMEDIATE_COPY_ROLES.has(role) && role !== 'minion'); }
+ 
+ function setTimer(room, ms) {
+   clearTimeout(room.timer);
+@@ -168,7 +185,6 @@ function scheduleBotNightAction(room, playerId) {
+   setTimeout(() => {
+     if (room.phase !== 'night' || room.actionPrompt?.playerId !== playerId) return;
+     applyNightAction(room, playerId, botNightAction(room, playerId));
+-    broadcast(room, 'room:state', publicRoom(room));
+   }, 900);
+ }
+ 
+@@ -232,18 +248,18 @@ function beginAction(room, role) {
+     setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
+   }
+   if (role === 'insomniac') {
+-    for (const id of room.actionActors) { privateSend(room, id, 'night:info', { role, currentRole: roleForPlayer(room, id) }); room.actionDone.add(`${role}:${id}`); }
++    for (const id of room.actionActors) { privateSend(room, id, 'night:info', { role, currentRole: playerCard(room, id)?.role }); room.actionDone.add(`${role}:${id}`); }
+     setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
+   }
+   if (!active) {
+-    setTimer(room, role === 'doppelganger' ? 10000 : 5000);
++    setTimer(room, role === 'doppelganger' ? 15000 : 5000);
+     broadcast(room, 'game:phase', publicRoom(room));
+     return;
+   }
+   const ownRole = room.startRoles.get(active) === 'doppelganger' && room.copyRoles.get(active) === role ? 'doppelganger-copy' : role;
+   room.actionPrompt = { playerId: active, role: ownRole, targetRole: role };
+   privateSend(room, active, 'night:prompt', { role: ownRole, targetRole: role, players: [...room.players.values()].filter((p) => p.id !== active).map(({ id, name }) => ({ id, name })), centerCount: room.center.length });
+-  setTimer(room, role === 'doppelganger' ? 10000 : 5000);
++  setTimer(room, role === 'doppelganger' ? 15000 : 5000);
+   scheduleBotNightAction(room, active);
+   broadcast(room, 'game:phase', publicRoom(room));
+ }
+@@ -253,7 +269,8 @@ function nextAction(room) {
+   const currentRoleIndex = NIGHT_ORDER.indexOf(room.activeRole);
+   for (let i = currentRoleIndex + 1; i < NIGHT_ORDER.length; i += 1) {
+     const nextRole = NIGHT_ORDER[i];
+-    if (hasPendingActor(room, nextRole)) return beginAction(room, nextRole);
++    // Announce the selected deck, never the secret distribution of its cards.
++    if (room.roles.includes(nextRole)) return beginAction(room, nextRole);
+   }
+   startDiscussion(room);
+ }
+@@ -268,16 +285,15 @@ function completeActor(room, playerId) {
+     const promptRole = room.startRoles.get(nextPlayer) === 'doppelganger' ? 'doppelganger-copy' : role;
+     room.actionPrompt = { playerId: nextPlayer, role: promptRole, targetRole: role };
+     privateSend(room, nextPlayer, 'night:prompt', { role: promptRole, targetRole: role, players: [...room.players.values()].filter((p) => p.id !== nextPlayer).map(({ id, name }) => ({ id, name })), centerCount: room.center.length });
+-    setTimer(room, room.startRoles.get(nextPlayer) === 'doppelganger' ? 10000 : 5000);
+     scheduleBotNightAction(room, nextPlayer);
+-    broadcast(room, 'game:phase', publicRoom(room));
+-  } else nextAction(room);
++  } else room.actionPrompt = null;
++  // Keep the public deadline unchanged even when an action finishes early.
+ }
+ 
+ function beginNight(room) {
+   room.phase = 'night'; room.actionDone = new Set(); room.copyRoles = new Map();
+   room.activeRole = null; room.actionActors = []; room.actionIndex = 0;
+-  const firstRole = NIGHT_ORDER.find((role) => hasPendingActor(room, role));
++  const firstRole = NIGHT_ORDER.find((role) => room.roles.includes(role));
+   if (firstRole) beginAction(room, firstRole);
+   else startDiscussion(room);
+ }
+@@ -291,7 +307,7 @@ function startGame(room) {
+   room.cards = deck;
+   room.startRoles = new Map();
+   const players = [...room.players.values()];
+-  players.forEach((p, i) => { deck[i].ownerId = p.id; room.startRoles.set(p.id, deck[i].role); privateSend(room, p.id, 'role:private', { role: deck[i].role, name: ROLE_NAME[deck[i].role] }); });
++  players.forEach((p, i) => { deck[i].ownerId = p.id; room.startRoles.set(p.id, deck[i].role); p.knowledge = { role: deck[i].role, events: [] }; privateSend(room, p.id, 'role:private', { role: deck[i].role, name: ROLE_NAME[deck[i].role] }); });
+   room.center = deck.slice(n);
+   room.votes = new Map(); room.result = null;
+   room.discussionSeconds = 600; room.votingSeconds = 20; room.extensionUsed = new Set(); room.voteRevealReason = null;
+@@ -317,8 +333,6 @@ function applyNightAction(room, playerId, data) {
+     privateSend(room, playerId, 'night:result', { title: `중앙 카드 ${index + 1} 확인`, roles: [ROLE_NAME[room.center[index].role]] });
+     room.actionDone.add(`werewolf:${playerId}`);
+     room.actionPrompt = null;
+-    // Allow time to read the result, including when this is the last night role.
+-    setTimer(room, 5000);
+     return;
+   } else if (actingAs === 'doppelganger') {
+     if (!target(data.targetId)) return send(room.players.get(playerId)?.socket, 'error', { message: '대상을 선택해 주세요.' });
+@@ -327,6 +341,9 @@ function applyNightAction(room, playerId, data) {
+     own.copyRole = copied;
+     room.copyRoles.set(playerId, copied);
+     privateSend(room, playerId, 'night:result', { title: '복사한 역할', currentRole: copied, text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[copied] || copied}입니다. 해당 역할을 복사했습니다.` });
++    if (copied === 'minion') {
++      privateSend(room, playerId, 'night:info', { role: 'minion', wolves: actorIds(room, 'werewolf').map((id) => room.players.get(id)?.name) });
++    }
+   } else if (actingAs === 'seer' || actingAs === 'doppelganger-copy' && ['seer'].includes(prompt.targetRole)) {
+     if (Array.isArray(data.centerIndexes) && data.centerIndexes.length === 2) {
+       const validIndexes = data.centerIndexes.every((i) => Number.isInteger(i) && i >= 0 && i < room.center.length);
+@@ -334,11 +351,12 @@ function applyNightAction(room, playerId, data) {
+       const roles = data.centerIndexes.map((i) => room.center[i]?.role).filter(Boolean);
+       if (roles.length !== 2) return send(room.players.get(playerId)?.socket, 'error', { message: '중앙 카드 두 장을 선택해 주세요.' });
+       privateSend(room, playerId, 'night:result', { title: '중앙 카드 확인', roles: roles.map((r) => ROLE_NAME[r]) });
+-    } else if (target(data.targetId)) privateSend(room, playerId, 'night:result', { title: '플레이어 확인', text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[roleForPlayer(room, data.targetId)]}입니다.` });
++    } else if (target(data.targetId)) privateSend(room, playerId, 'night:result', { title: '플레이어 확인', text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[playerCard(room, data.targetId)?.role]}입니다.` });
+     else return send(room.players.get(playerId)?.socket, 'error', { message: '플레이어 한 명 또는 중앙 카드 두 장을 선택해 주세요.' });
+   } else if (actingAs === 'robber' || actingAs === 'doppelganger-copy' && prompt.targetRole === 'robber') {
+     if (!target(data.targetId) || !swap(playerId, data.targetId)) return send(room.players.get(playerId)?.socket, 'error', { message: '바꿀 플레이어를 선택해 주세요.' });
+-    privateSend(room, playerId, 'night:result', { title: '역할 교환', currentRole: roleForPlayer(room, playerId), text: `새 역할은 ${ROLE_NAME[roleForPlayer(room, playerId)]}입니다.` });
++    const visibleRole = playerCard(room, playerId)?.role;
++    privateSend(room, playerId, 'night:result', { title: '역할 교환', currentRole: visibleRole, text: `새 역할은 ${ROLE_NAME[visibleRole]}입니다.` });
+   } else if (actingAs === 'troublemaker' || actingAs === 'doppelganger-copy' && prompt.targetRole === 'troublemaker') {
+     if (!target(data.targetId) || !target(data.secondTargetId) || data.targetId === data.secondTargetId || !swap(data.targetId, data.secondTargetId)) return send(room.players.get(playerId)?.socket, 'error', { message: '서로 다른 플레이어 두 명을 골라 주세요.' });
+     privateSend(room, playerId, 'night:result', { title: '역할 교환', text: '두 플레이어의 역할을 서로 바꿨습니다.' });
+@@ -356,7 +374,7 @@ function applyNightAction(room, playerId, data) {
+     const copiedRole = room.copyRoles.get(playerId);
+     room.actionPrompt = { playerId, role: 'doppelganger-copy', targetRole: copiedRole };
+     privateSend(room, playerId, 'night:prompt', { role: 'doppelganger-copy', targetRole: copiedRole, players: [...room.players.values()].filter((p) => p.id !== playerId).map(({ id, name }) => ({ id, name })), centerCount: room.center.length });
+-    setTimer(room, 5000); scheduleBotNightAction(room, playerId); broadcast(room, 'game:phase', publicRoom(room)); return;
++    scheduleBotNightAction(room, playerId); return;
+   }
+   completeActor(room, playerId);
+ }
+@@ -383,14 +401,6 @@ function resolveVotes(room) {
+   const minionSoloWin = (minionId) => !wolvesExist && finalRoles.some((p) => p.id === minionId && p.role === 'minion' && !p.killed) && finalRoles.some((p) => p.id !== minionId && p.killed);
+   const minionWin = finalRoles.some((p) => p.role === 'minion' && minionSoloWin(p.id));
+   const winners = finalRoles.map((p) => ({ id: p.id, win: p.role === 'tanner' ? p.killed : p.role === 'werewolf' ? wolfTeamWin : p.role === 'minion' ? wolfTeamWin || minionSoloWin(p.id) : villageWin }));
+-  // A copied role keeps its win condition even if it is not physically a role card.
+-  for (const p of finalRoles) {
+-    if (room.startRoles.get(p.id) === 'doppelganger' && room.copyRoles.has(p.id)) {
+-      const copied = room.copyRoles.get(p.id);
+-      const win = copied === 'tanner' ? p.killed : copied === 'werewolf' ? wolfTeamWin : copied === 'minion' ? wolfTeamWin || minionSoloWin(p.id) : villageWin;
+-      const entry = winners.find((w) => w.id === p.id); if (entry) entry.win = win;
+-    }
+-  }
+   room.result = { finalRoles, killed, winners, villageWin, wolfTeamWin, minionWin, center: room.center.map((c) => ROLE_NAME[c.role]) };
+   broadcast(room, 'game:result', room.result); broadcast(room, 'room:state', publicRoom(room));
+ }
+@@ -401,7 +411,7 @@ function timerExpired(room) {
+   else if (room.phase === 'night') {
+     const active = room.actionPrompt?.playerId;
+     if (active) completeActor(room, active);
+-    else nextAction(room);
++    nextAction(room);
+   } else if (room.phase === 'discussion') enterVoting(room);
+   else if (room.phase === 'voting') beginVoteReveal(room, '투표 시간이 끝났습니다.');
+   else if (room.phase === 'vote_reveal') resolveVotes(room);
+@@ -414,7 +424,7 @@ function skipTestPhase(room) {
+   else if (room.phase === 'night') {
+     const active = room.actionPrompt?.playerId;
+     if (active) completeActor(room, active);
+-    else nextAction(room);
++    nextAction(room);
+   } else if (room.phase === 'discussion') enterVoting(room);
+   else if (room.phase === 'voting') {
+     for (const id of room.players.keys()) if (!room.votes.has(id)) room.votes.set(id, null);
+@@ -472,8 +482,9 @@ function handle(ws, event, data) {
+     player.socket = ws; player.connected = true; player.disconnectedAt = null; ws.room = targetRoom.code; ws.playerId = player.id;
+     send(ws, 'room:joined', { room: publicRoom(targetRoom), playerId: player.id, token: player.token, isHost: player.id === targetRoom.hostId });
+     if (targetRoom.phase === 'role_reveal' || targetRoom.phase !== 'lobby' && targetRoom.startRoles.has(player.id)) {
+-      const role = roleForPlayer(targetRoom, player.id);
++      const role = player.knowledge?.role || targetRoom.startRoles.get(player.id);
+       send(ws, 'role:private', { role, name: ROLE_NAME[role] });
++      for (const entry of player.knowledge?.events || []) send(ws, entry.event, { ...entry.data, replay: true });
+     }
+     if (targetRoom.phase === 'night' && targetRoom.actionPrompt?.playerId === player.id) {
+       const prompt = targetRoom.actionPrompt;
+@@ -524,7 +535,7 @@ function handle(ws, event, data) {
+     if (room.roles.length !== room.players.size + 3) return emitError(ws, '인원에 맞는 역할 구성을 확인해 주세요.');
+     startGame(room); return;
+   }
+-  if (event === 'night:action') { applyNightAction(room, ws.playerId, data); broadcast(room, 'room:state', publicRoom(room)); return; }
++  if (event === 'night:action') { applyNightAction(room, ws.playerId, data); return; }
+   if (event === 'vote:cast' && room.phase === 'voting') {
+     if (room.votes.has(ws.playerId)) return emitError(ws, '이미 투표하셨습니다.');
+     const targetId = data.targetId === null ? null : room.players.has(data.targetId) && data.targetId !== ws.playerId ? data.targetId : null;
+@@ -555,8 +566,12 @@ function handle(ws, event, data) {
+   }
+   if (event === 'game:resume' && ws.playerId === room.hostId && room.phase === 'paused') {
+     room.phase = room.previousPhase; room.pauseReason = null;
+-    if (room.remainingMs > 0) setTimer(room, room.remainingMs);
+-    broadcast(room, 'game:resumed', publicRoom(room)); broadcast(room, 'room:state', publicRoom(room)); return;
++    setTimer(room, Math.max(0, room.remainingMs));
++    broadcast(room, 'game:resumed', publicRoom(room));
++    sendActionPrompt(room);
++    if (room.phase === 'night' && room.actionPrompt) scheduleBotNightAction(room, room.actionPrompt.playerId);
++    if (room.phase === 'voting' && room.hasTestBots) scheduleBotVotes(room);
++    return;
+   }
+ }
+ 
+diff --git a/tests/lone-wolf.test.mjs b/tests/lone-wolf.test.mjs
+index f312439..7e0c711 100644
+--- a/tests/lone-wolf.test.mjs
++++ b/tests/lone-wolf.test.mjs
+@@ -61,10 +61,12 @@ for (const [index, expected] of ['예언자', '주정뱅이', '무두장이'].en
+     assert.ok(f.messages.slice(1).every(m => results(m).length === 0));
+     assert.equal(f.room.actionPrompt, null);
+     assert.equal(f.room.phase, 'night');
+-    assert.equal(f.room.timer.ms, 5000); // Keep the result readable before discussion.
++    assert.equal(f.room.timer.ms, 5000); // Do not reset the public deadline after a selection.
+     f.applyNightAction(f.room, 'p0', { centerIndex: (index + 1) % 3 });
+     assert.equal(results(f.messages[0]).length, 1);
+     f.timerExpired(f.room);
++    assert.equal(f.room.activeRole, 'seer'); // Center roles must also be announced.
++    while (f.room.phase === 'night') f.timerExpired(f.room);
+     assert.equal(f.room.phase, 'discussion');
+   });
+ }
+@@ -97,6 +99,8 @@ test('timeout reveals nothing; an AI lone wolf chooses exactly one valid index',
+   const timedOut = fixture();
+   timedOut.timerExpired(timedOut.room);
+   assert.equal(results(timedOut.messages.flat()).length, 0);
++  assert.equal(timedOut.room.activeRole, 'seer');
++  while (timedOut.room.phase === 'night') timedOut.timerExpired(timedOut.room);
+   assert.equal(timedOut.room.phase, 'discussion');
+   const bot = fixture();
+   const action = bot.botNightAction(bot.room, 'p0');
+diff --git a/tests/rules-regression.test.mjs b/tests/rules-regression.test.mjs
+new file mode 100644
+index 0000000..693ff1c
+--- /dev/null
++++ b/tests/rules-regression.test.mjs
+@@ -0,0 +1,251 @@
++// Run: node --test tests/*.test.mjs
++// Optional: WEREWOLF_REPO points to another checkout. Production sources are unchanged.
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import { randomBytes } from 'node:crypto';
++import { join } from 'node:path';
++import { fileURLToPath } from 'node:url';
++import vm from 'node:vm';
++import test from 'node:test';
++const repo = process.env.WEREWOLF_REPO || fileURLToPath(new URL('../', import.meta.url));
++const source = readFileSync(join(repo, 'server.mjs'), 'utf8')
++  .split('const server = createServer(')[0].replace(/^import .*;\r?$/gm, '');
++function fixture(roles, centerRoles = ['villager', 'villager', 'villager']) {
++  const context = vm.createContext({ Buffer, process, join, randomBytes,
++    setTimeout: (callback, ms) => ({ callback, ms }), clearTimeout() {} });
++  vm.runInContext(`${source}
++    globalThis.api={rooms,handle,beginNight,beginAction,applyNightAction,resolveVotes,
++    roleForPlayer,timerExpired,publicRoom,startGame,defaultRoles,enterVoting};`, context);
++  const api = context.api;
++  function socket(id) {
++    const messages = [];
++    return { room:'AUDIT', playerId:id, messages, socket:{
++      end() {}, write(frame) {
++        const n=frame[1]&127;
++        messages.push(JSON.parse(frame.subarray(n<126?2:n===126?4:10).toString()));
++      }
++    }};
++  }
++  const players = new Map(roles.map((role,i) => {
++    const id=`p${i}`; return [id,{id,name:id,token:`token-${id}`,ready:true,connected:true,socket:socket(id)}];
++  }));
++  const center = centerRoles.map((role,i)=>({id:`c${i}`,role,ownerId:null}));
++  const room = { code:'AUDIT', hostId:'p0', players, phase:'night',
++    cards:[...roles.map((role,i)=>({id:`card${i}`,role,ownerId:`p${i}`,copyRole:null})),...center],
++    center, roles:[...roles,...centerRoles], startRoles:new Map(roles.map((r,i)=>[`p${i}`,r])),
++    copyRoles:new Map(),actionDone:new Set(),actionActors:[],actionIndex:0,activeRole:null,actionPrompt:null,
++    votes:new Map(),extensionUsed:new Set(),chat:[],discussionSeconds:600,votingSeconds:20,
++    result:null,timer:null,timerEndsAt:null,remainingMs:0,hasTestBots:false };
++  api.rooms.set(room.code,room);
++  const messages=id=>players.get(id).socket.messages;
++  const action=(role,id,data)=>{ api.beginAction(room,role);api.applyNightAction(room,id,data); };
++  const vote=targets=>{room.votes=new Map(targets.map((id,i)=>[`p${i}`,id]));api.resolveVotes(room);return room.result;};
++  const reconnect=id=>{const ws=socket(null);api.handle(ws,'room:reconnect',{code:room.code,token:`token-${id}`});return ws.messages;};
++  return {...api,room,messages,action,vote,reconnect};
++}
++const winner=(result,id)=>result.winners.find(p=>p.id===id).win;
++const results=(f,id)=>f.messages(id).filter(m=>m.event==='night:result');
++
++for(let n=3;n<=10;n++) test(`PASS baseline: ${n} players receive N+3 unique cards`,()=>{
++  const f=fixture(Array(n).fill('villager'));
++  f.room.roles=f.defaultRoles(n);f.startGame(f.room);
++  assert.equal(f.room.cards.length,n+3);assert.equal(f.room.center.length,3);
++  assert.equal(new Set(f.room.cards.map(c=>c.id)).size,n+3);
++  for(const id of f.room.players.keys())assert.equal(f.room.cards.filter(c=>c.ownerId===id).length,1);
++});
++test('PASS baseline: seer sees two distinct centers privately and cannot act twice',()=>{
++  const f=fixture(['seer','werewolf','villager'],['drunk','tanner','robber']);
++  f.action('seer','p0',{centerIndexes:[0,2]});
++  assert.deepEqual(results(f,'p0')[0].data.roles,['주정뱅이','강도']);
++  assert.equal(results(f,'p1').length,0);
++  f.applyNightAction(f.room,'p0',{targetId:'p1'});assert.equal(results(f,'p0').length,1);
++});
++test('PASS baseline: seer cannot inspect a duplicate center',()=>{
++  const f=fixture(['seer','werewolf','villager']);f.action('seer','p0',{centerIndexes:[0,0]});
++  assert.equal(results(f,'p0').length,0);assert.equal(f.room.actionPrompt.playerId,'p0');
++});
++test('PASS baseline: robber swaps and sees new role; original owner still acts',()=>{
++  const f=fixture(['robber','troublemaker','werewolf']);
++  f.action('robber','p0',{targetId:'p1'});assert.equal(f.roleForPlayer(f.room,'p0'),'troublemaker');
++  assert.equal(results(f,'p0')[0].data.currentRole,'troublemaker');
++  f.timerExpired(f.room);
++  assert.equal(f.room.actionPrompt.playerId,'p1');
++});
++test('PASS baseline: troublemaker cannot swap self',()=>{
++  const f=fixture(['troublemaker','werewolf','villager']);f.action('troublemaker','p0',{targetId:'p0',secondTargetId:'p1'});
++  assert.equal(f.roleForPlayer(f.room,'p0'),'troublemaker');assert.equal(results(f,'p0').length,0);
++});
++test('PASS baseline: drunk swaps without seeing the card and preserves ownership',()=>{
++  const f=fixture(['drunk','werewolf','villager'],['tanner','seer','robber']);
++  f.action('drunk','p0',{centerIndex:0});assert.equal(f.roleForPlayer(f.room,'p0'),'tanner');
++  assert.equal(f.room.center[0].role,'drunk');assert.equal(results(f,'p0')[0].data.currentRole,undefined);
++  assert.equal(f.room.cards.filter(c=>c.ownerId==='p0').length,1);
++});
++test('PASS baseline: insomniac sees current card',()=>{
++  const f=fixture(['insomniac','troublemaker','werewolf']);
++  f.action('troublemaker','p1',{targetId:'p0',secondTargetId:'p2'});
++  f.timerExpired(f.room);
++  assert.equal(f.messages('p0').find(m=>m.event==='night:info').data.currentRole,'werewolf');
++});
++test('public night deadlines do not change after early completion or a copied action',()=>{
++  const f=fixture(['doppelganger','robber','werewolf']);
++  f.beginAction(f.room,'doppelganger');
++  const deadline=f.room.timerEndsAt, timer=f.room.timer;
++  f.applyNightAction(f.room,'p0',{targetId:'p1'});
++  assert.equal(f.room.timerEndsAt,deadline);assert.equal(f.room.timer,timer);
++  f.applyNightAction(f.room,'p0',{targetId:'p2'});
++  assert.equal(f.room.timerEndsAt,deadline);assert.equal(f.room.activeRole,'doppelganger');
++  assert.equal(f.room.actionPrompt,null);
++  const count=results(f,'p0').length;
++  f.applyNightAction(f.room,'p0',{targetId:'p1'});
++  assert.equal(results(f,'p0').length,count);
++});
++test('resume resends a private prompt to an actor who reconnected while paused',()=>{
++  const f=fixture(['seer','werewolf','villager']);
++  f.beginAction(f.room,'seer');
++  f.handle(f.room.players.get('p0').socket,'game:pause',{});
++  const received=f.reconnect('p0');
++  assert.ok(!received.some(m=>m.event==='night:prompt'));
++  f.handle(f.room.players.get('p0').socket,'game:resume',{});
++  assert.ok(received.some(m=>m.event==='night:prompt'&&m.data.targetRole==='seer'));
++  assert.ok(!f.messages('p1').some(m=>m.event==='night:prompt'));
++});
++test('robber sees a doppelganger card without learning its copied role',()=>{
++  const f=fixture(['doppelganger','werewolf','robber']);
++  f.action('doppelganger','p0',{targetId:'p1'});
++  f.action('robber','p2',{targetId:'p0'});
++  assert.equal(results(f,'p2')[0].data.currentRole,'doppelganger');
++  assert.equal(f.roleForPlayer(f.room,'p2'),'werewolf');
++});
++test('PASS baseline: masons identify each other privately',()=>{
++  const f=fixture(['mason','mason','villager']);f.beginAction(f.room,'mason');
++  assert.deepEqual(f.messages('p0').find(m=>m.event==='night:info').data.others,['p1']);
++  assert.equal(f.messages('p2').filter(m=>m.event==='night:info').length,0);
++});
++test('PASS baseline: minion knows wolves but wolves do not learn minion',()=>{
++  const f=fixture(['minion','werewolf','werewolf']);f.beginAction(f.room,'minion');
++  assert.deepEqual(f.messages('p0').find(m=>m.event==='night:info').data.wolves,['p1','p2']);
++  assert.equal(f.messages('p1').filter(m=>m.event==='night:info').length,0);
++});
++for(const [name,roles,votes,expected] of [
++  ['wolf killed',['werewolf','villager','seer'],['p1','p0','p0'],[false,true,true]],
++  ['wolf survives',['werewolf','villager','seer'],['p1','p2','p1'],[true,false,false]],
++  ['no wolf no death',['villager','seer','robber'],['p1','p2','p0'],[true,true,true]],
++  ['no wolf villager killed',['villager','seer','robber'],['p1','p0','p0'],[false,false,false]],
++  ['tanner blocks wolf win',['tanner','werewolf','villager'],['p1','p0','p0'],[true,false,false]],
++  ['minion survives without wolf',['minion','villager','seer'],['p1','p2','p1'],[true,false,false]],
++  ['minion dies without wolf',['minion','villager','seer'],['p1','p0','p0'],[false,false,false]],
++  ['hunter kills wolf',['hunter','werewolf','villager'],['p1','p0','p0'],[true,false,true]],
++  ['wolf and tanner tie',['werewolf','tanner','villager','seer'],['p1','p0','p1','p0'],[false,true,true,true]]
++]) test(`PASS baseline: victory ${name}`,()=>{
++  const f=fixture(roles);const result=f.vote(votes);assert.deepEqual(Array.from(result.winners,w=>w.win),expected);
++});
++test('PASS baseline: nonhost cannot pause; paused votes and actions are rejected',()=>{
++  const f=fixture(['robber','werewolf','villager']);f.beginAction(f.room,'robber');
++  f.handle(f.room.players.get('p1').socket,'game:pause',{});assert.equal(f.room.phase,'night');
++  f.handle(f.room.players.get('p0').socket,'game:pause',{});assert.equal(f.room.phase,'paused');
++  f.handle(f.room.players.get('p0').socket,'night:action',{targetId:'p1'});
++  f.handle(f.room.players.get('p1').socket,'vote:cast',{targetId:'p0'});
++  assert.equal(f.room.votes.size,0);assert.equal(f.roleForPlayer(f.room,'p0'),'robber');
++  f.handle(f.room.players.get('p0').socket,'game:resume',{});assert.equal(f.room.phase,'night');
++});
++test('PASS baseline: votes are secret before result and duplicate votes cannot change target',()=>{
++  const f=fixture(['villager','werewolf','seer']);f.enterVoting(f.room);
++  f.handle(f.room.players.get('p0').socket,'vote:cast',{targetId:'p1'});
++  f.handle(f.room.players.get('p0').socket,'vote:cast',{targetId:'p2'});
++  assert.equal(f.room.votes.get('p0'),'p1');assert.equal(f.publicRoom(f.room).result,null);
++  assert.equal(f.publicRoom(f.room).votes,undefined);
++});
++test('BUG-1: reconnect must not reveal a drunk player new secret card',()=>{
++  const f=fixture(['drunk','werewolf','villager'],['tanner','seer','robber']);
++  f.action('drunk','p0',{centerIndex:0});
++  const received=f.reconnect('p0').find(m=>m.event==='role:private');
++  assert.equal(received.data.role,'drunk','Must restore last known role, not hidden final card');
++});
++test('BUG-2: doppelganger who robs a wolf must win as final wolf',()=>{
++  const f=fixture(['doppelganger','robber','werewolf']);
++  f.action('doppelganger','p0',{targetId:'p1'});
++  f.applyNightAction(f.room,'p0',{targetId:'p2'});
++  assert.equal(f.roleForPlayer(f.room,'p0'),'werewolf');
++  const result=f.vote(['p1','p2','p1']);
++  assert.equal(result.wolfTeamWin,true);
++  assert.equal(winner(result,'p0'),true,'Final wolf must win with wolf team');
++});
++test('BUG-3: exchanging doppelganger wolf away must switch original player to village team',()=>{
++  const f=fixture(['doppelganger','werewolf','troublemaker','villager']);
++  f.action('doppelganger','p0',{targetId:'p1'});
++  f.action('troublemaker','p2',{targetId:'p0',secondTargetId:'p3'});
++  assert.equal(f.roleForPlayer(f.room,'p0'),'villager');
++  const result=f.vote(['p1','p0','p1','p0']);
++  assert.equal(result.villageWin,true);
++  assert.equal(winner(result,'p0'),true,'Final villager must win with village team');
++});
++test('BUG-4: copied minion must receive wolf information in doppelganger phase',()=>{
++  const f=fixture(['doppelganger','minion','werewolf']);
++  f.action('doppelganger','p0',{targetId:'p1'});
++  assert.ok(f.messages('p0').some(m=>m.event==='night:info'&&m.data.wolves?.includes('p2')),
++    'Copied minion should know wolves before normal werewolf phase');
++});
++test('BUG-5: observing a doppelganger card must reveal card identity, not hidden copy choice',()=>{
++  const f=fixture(['doppelganger','werewolf','seer']);
++  f.action('doppelganger','p0',{targetId:'p1'});f.action('seer','p2',{targetId:'p0'});
++  assert.match(results(f,'p2')[0].data.text,/도플갱어/);
++});
++test('BUG-6: reconnect must restore previously granted private seer result',()=>{
++  const f=fixture(['seer','werewolf','villager'],['tanner','drunk','robber']);
++  f.action('seer','p0',{centerIndexes:[0,1]});
++  const restored=f.reconnect('p0');
++  assert.ok(restored.some(m=>m.event==='night:result'&&m.data.roles?.includes('무두장이')),
++    'Seer knowledge is lost on refresh');
++});
++test('BUG-7: selected roles in center must not be discoverable from omitted public night turns',()=>{
++  const f=fixture(['werewolf','villager','villager'],['seer','robber','troublemaker']);
++  f.beginNight(f.room);
++  for(let i=0;i<12&&f.room.phase==='night';i++)f.timerExpired(f.room);
++  const turns=f.messages('p1').filter(m=>m.event==='game:phase'&&m.data.phase==='night').map(m=>m.data.nightTurn);
++  assert.ok(turns.includes('seer'),'Public phase skips seer and proves seer is in center');
++});
++test('PASS documented MVP variation: copied drunk timeout is treated as no action',()=>{
++  const f=fixture(['doppelganger','drunk','werewolf'],['tanner','seer','robber']);
++  f.action('doppelganger','p0',{targetId:'p1'});f.timerExpired(f.room);
++  assert.equal(f.roleForPlayer(f.room,'p0'),'drunk');
++});
++test('BUG-9: pausing then resuming must restore the active browser action controls',()=>{
++  const clientSource=readFileSync(join(repo,'public/app.js'),'utf8').split('setInterval(()=>')[0];
++  const context=vm.createContext({document:{querySelector:()=>null},localStorage:{setItem(){}},setTimeout(){},clearTimeout(){}});
++  vm.runInContext(`${clientSource}
++    render=()=>{};notify=()=>{};syncPeers=()=>{};syncMediaToPhase=()=>{};
++    globalThis.api={state,handleMessage};`,context);
++  const {state,handleMessage}=context.api;
++  state.room={phase:'night',nightTurn:'seer'};
++  state.prompt={role:'seer',targetRole:'seer',players:[]};
++  handleMessage('game:paused',{phase:'paused',nightTurn:null});
++  handleMessage('game:resumed',{phase:'night',nightTurn:'seer'});
++  assert.ok(state.prompt,'Pause discards prompt and resume never sends it again');
++});
++test('private history is replayed once per reconnect and remains readable during discussion',()=>{
++  const f=fixture(['seer','werewolf','villager'],['tanner','drunk','robber']);
++  f.action('seer','p0',{centerIndexes:[0,1]});
++  const clientSource=readFileSync(join(repo,'public/app.js'),'utf8').split('setInterval(()=>')[0];
++  const context=vm.createContext({document:{querySelector:()=>null},localStorage:{setItem(){}},setTimeout(){},clearTimeout(){}});
++  vm.runInContext(`${clientSource}
++    render=()=>{};notify=()=>{};syncPeers=()=>{};syncMediaToPhase=()=>{};
++    globalThis.api={state,handleMessage,privateNotes};`,context);
++  const {state,handleMessage,privateNotes}=context.api;
++  for(let i=0;i<2;i++){
++    const received=f.reconnect('p0');
++    for(const m of received)handleMessage(m.event,m.data);
++    assert.equal(state.privateResults.length,1);
++    assert.match(privateNotes(),/무두장이/);
++    assert.match(privateNotes(),/주정뱅이/);
++  }
++  assert.ok(!JSON.stringify(f.publicRoom(f.room)).includes('knowledge'));
++  assert.equal(results(f,'p1').length,0);
++});
++test('copied minion gets no duplicate information during normal minion phase',()=>{
++  const f=fixture(['doppelganger','minion','werewolf']);
++  f.action('doppelganger','p0',{targetId:'p1'});
++  f.beginAction(f.room,'minion');
++  assert.equal(f.messages('p0').filter(m=>m.event==='night:info').length,1);
++  assert.equal(f.messages('p1').filter(m=>m.event==='night:info').length,1);
++});

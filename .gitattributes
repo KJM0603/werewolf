@@ -1,0 +1,2 @@
+# Keep archived evidence byte-for-byte, including patch context whitespace.
+docs/evidence/2026-10-20/** -text -whitespace
