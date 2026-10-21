@@ -1,9 +1,13 @@
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, statSync } from 'node:fs';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, sep } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
+import { createIceConfigProvider } from './rtc-config.mjs';
 
 const PORT = Number(process.env.PORT || 4173);
+const BASE_PATH = (process.env.BASE_PATH || '').trim().replace(/\/+$/, '');
+if (BASE_PATH && !/^\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+$/.test(BASE_PATH)) throw new Error('BASE_PATH must be an absolute path such as /game-werewolf261020');
+const stripBase = p => BASE_PATH && (p === BASE_PATH || p.startsWith(BASE_PATH + '/')) ? p.slice(BASE_PATH.length) || '/' : p;
 const ROOT = join(process.cwd(), 'public');
 const rooms = new Map();
 const sockets = new Set();
@@ -487,6 +491,7 @@ function emitError(ws, message) { send(ws, 'error', { message }); }
 
 function handle(ws, event, data) {
   const room = roomFor(ws);
+  if (event === 'connection:ping') { send(ws, 'connection:pong'); return; }
   if (event === 'room:create') {
     if (ws.playerId) return emitError(ws, '이미 방에 입장해 있습니다.');
     let roomCode; do { roomCode = code(); } while (rooms.has(roomCode));
@@ -546,6 +551,18 @@ function handle(ws, event, data) {
   }
   if (!room || !ws.playerId || !room.players.has(ws.playerId)) return emitError(ws, '먼저 방에 입장해 주세요.');
   const player = room.players.get(ws.playerId);
+
+  if (event === 'rtc:config') {
+    if (player.socket === ws && !ws.closed && !ws.rtcPending) {
+      ws.rtcPending = true;
+      getIceConfig(player).then(config => {
+        if (player.socket === ws && !ws.closed) send(ws, 'rtc:config', config);
+      }).catch(() => {
+        if (player.socket === ws && !ws.closed) send(ws, 'rtc:config-error', { message: '음성 중계 설정을 불러오지 못했습니다. 잠시 후 미디어 연결 재시도를 눌러 주세요. 채팅은 계속 이용할 수 있습니다.' });
+      }).finally(() => { ws.rtcPending = false; });
+    }
+    return;
+  }
 
   if (event === 'room:leave') {
     if (room.phase !== 'lobby') return emitError(ws, '대기실에서만 방을 나갈 수 있습니다.');
@@ -679,17 +696,26 @@ function parseFrames(ws, chunk) {
 }
 
 const server = createServer((req, res) => {
-  const pathname = decodeURIComponent(new URL(req.url, `http://${req.headers.host}`).pathname);
+  let rawPath, search;
+  try { const url = new URL(req.url, 'http://localhost'); rawPath = decodeURIComponent(url.pathname); search = url.search; }
+  catch { res.writeHead(400); res.end('Bad request'); return; }
+  if (BASE_PATH && rawPath === BASE_PATH) { res.writeHead(301, { Location: BASE_PATH + '/' + search }); res.end(); return; }
+  const pathname = stripBase(rawPath);
   const requested = pathname === '/' ? '/index.html' : pathname;
   const file = normalize(join(ROOT, requested));
-  if (!file.startsWith(ROOT) || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end('Not found'); return; }
+  if (!file.startsWith(ROOT + sep) || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end('Not found'); return; }
   const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.wasm': 'application/wasm' };
   res.writeHead(200, { 'Content-Type': types[extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-store' });
   createReadStream(file).pipe(res);
 });
 
+const getIceConfig = createIceConfigProvider();
+
 server.on('upgrade', (req, socket) => {
-  if (req.url !== '/signal' || !req.headers['sec-websocket-key']) { socket.destroy(); return; }
+  let pathname;
+  try { pathname = stripBase(decodeURIComponent(new URL(req.url, 'http://localhost').pathname)); }
+  catch { socket.destroy(); return; }
+  if (pathname !== '/signal' || !req.headers['sec-websocket-key']) { socket.destroy(); return; }
   const accept = createHash('sha1').update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest('base64');
   socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
   const ws = { socket, buffer: Buffer.alloc(0), closed: false, room: null, playerId: null };
@@ -699,4 +725,4 @@ server.on('upgrade', (req, socket) => {
   socket.on('close', () => closeSocket(ws));
 });
 
-server.listen(PORT, () => console.log(`One Night Werewolf running at http://localhost:${PORT}`));
+server.listen(PORT, () => console.log(`One Night Werewolf running at http://localhost:${server.address().port}${BASE_PATH}/`));

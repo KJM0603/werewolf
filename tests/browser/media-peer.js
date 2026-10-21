@@ -6,6 +6,8 @@ let audioContext,oscillator,paintTimer;
 window.peerTest={
   state,
   init(id,ids){
+    // Local synthetic transport test; production gets credentials via the server.
+    rtcConfig={iceServers:[],iceTransportPolicy:'all',expiresAt:Date.now()+3600000};
     state.playerId=id;
     state.room={phase:'discussion',players:ids.map(id=>({id,name:id,connected:true}))};
   },

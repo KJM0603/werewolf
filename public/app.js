@@ -16,22 +16,86 @@ let chatHeight = 280;
 let micPending = false;
 let playbackBlocked = false;
 let nightActionPending = false;
+let rtcConfig = null;
+let rtcPending = null;
+let rtcError = '';
+let reconnectAttempt = 0;
+let lastServerMessage = 0;
+let connectingSince = 0;
+
+function loadIceConfig() {
+  if (rtcConfig && rtcConfig.expiresAt > Date.now() + 120000) return Promise.resolve(rtcConfig);
+  if (rtcPending) return rtcPending.promise;
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const timer = setTimeout(() => finishIceConfig(null, '음성 중계 설정 응답이 지연되고 있습니다. 미디어 연결 재시도를 눌러 주세요.'), 10000);
+  rtcPending = { promise, resolve, reject, timer };
+  if (!send('rtc:config')) finishIceConfig(null, '서버 연결 후 미디어 연결 재시도를 눌러 주세요.');
+  return promise;
+}
+function finishIceConfig(config, error = '') {
+  const pending = rtcPending;
+  if (!pending) return;
+  clearTimeout(pending.timer); rtcPending = null;
+  rtcError = error;
+  if (error) { pending.reject(new Error(error)); return; }
+  rtcConfig = config;
+  for (const pc of state.peers.values()) {
+    if (pc.connectionState !== 'closed') {
+      try { pc.setConfiguration({ iceServers: config.iceServers, iceTransportPolicy: config.iceTransportPolicy }); }
+      catch { rtcError = '미디어 설정 갱신에 실패했습니다. 미디어 연결 재시도를 눌러 주세요.'; }
+    }
+  }
+  pending.resolve(config);
+}
+function browserNotice() {
+  if (!/KAKAOTALK/i.test(navigator.userAgent || '')) return '';
+  return '<aside class="connection-notice" role="note"><strong>Safari 또는 Chrome에서 열어 주세요.</strong><p>카카오톡 안에서는 마이크·카메라가 제한될 수 있습니다. 메뉴에서 외부 브라우저로 열거나 주소를 복사해 Safari·Chrome에 붙여 넣어 주세요. 브라우저를 바꾸실 경우 방에 들어가기 전에 이동해 주세요.</p></aside>';
+}
+function connectionNotice() {
+  if (!state.room) return '';
+  return `<aside class="connection-notice" role="status"><p>${esc(rtcError || '음성 사용 중에는 화면을 켜고 이 페이지를 유지해 주세요. 앱을 전환한 뒤 소리가 끊겼다면 연결을 다시 시도해 주세요.')}</p><button class="btn ghost small" id="retry-media">미디어 연결 재시도</button></aside>`;
+}
+async function retryMedia() {
+  try {
+    rtcConfig = null;
+    await loadIceConfig();
+    for (const pc of state.peers.values()) if (pc.connectionState !== 'closed') pc.restartIce();
+    await syncPeers();
+    render();
+    notify('미디어 연결을 다시 시도합니다.');
+  } catch (error) { rtcError = error.message; render(); notify(rtcError); }
+}
+
+function checkConnection() {
+  if (!state.room || document.visibilityState === 'hidden') return;
+  const ws = state.ws;
+  if (!ws || ws.readyState === WebSocket.CLOSED) { connect(() => rejoin()); return; }
+  if ((ws.readyState === WebSocket.OPEN && Date.now() - lastServerMessage > 45000) ||
+      (ws.readyState === WebSocket.CONNECTING && Date.now() - connectingSince > 12000)) { ws.close(); return; }
+  if (ws.readyState === WebSocket.OPEN) {
+    send('connection:ping');
+    if (state.room.phase === 'discussion') void syncPeers();
+  }
+}
 
 function esc(v='') { return String(v).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function notify(message) { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toastEl.classList.remove('show'),3000); }
 function saveSession() { if (state.room?.code && state.sessionToken) localStorage.setItem('one-night-session', JSON.stringify({code:state.room.code,token:state.sessionToken})); }
 function connect(onReady) {
   if (state.ws && state.ws.readyState === WebSocket.OPEN) return onReady?.();
+  if (state.ws && state.ws.readyState === WebSocket.CONNECTING) { state.ws.addEventListener('open', () => onReady?.(), { once: true }); return; }
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${scheme}//${location.host}/signal`); state.ws=ws;
-  ws.addEventListener('open',()=>{if(state.ws===ws)onReady?.();});
-  ws.addEventListener('message',(e)=>{if(state.ws!==ws)return;try { const msg=JSON.parse(e.data); handleMessage(msg.event,msg.data||{}); } catch { notify('서버 응답을 읽지 못했습니다.'); }});
-  ws.addEventListener('close',()=>{if(state.ws!==ws)return;if(leavingRoom)return returnToHome();stopCamera();for(const pc of state.peers.values())pc.close();state.peers.clear(); if(state.room){setTimeout(()=>{if(state.room&&state.ws===ws&&ws.readyState===WebSocket.CLOSED){connect(()=>rejoin());}},1500);}});
+  const ws = new WebSocket(`${scheme}//${location.host}${(location.pathname || '/').replace(/[^/]*$/, '')}signal`); state.ws=ws;connectingSince=Date.now();
+  ws.addEventListener('open',()=>{if(state.ws===ws){lastServerMessage=Date.now();onReady?.();}});
+  ws.addEventListener('message',(e)=>{if(state.ws!==ws)return;lastServerMessage=Date.now();try { const msg=JSON.parse(e.data); handleMessage(msg.event,msg.data||{}); } catch { notify('서버 응답을 읽지 못했습니다.'); }});
+  ws.addEventListener('close',()=>{if(state.ws!==ws)return;if(leavingRoom)return returnToHome();finishIceConfig(null,'서버와 연결이 끊겼습니다.');stopCamera();for(const pc of state.peers.values())pc.close();state.peers.clear();state.remoteStreams.clear(); if(state.room){const delay=Math.min(30000,1500*2**Math.min(reconnectAttempt++,5))+Math.random()*500;setTimeout(()=>{if(state.room&&state.ws===ws&&ws.readyState===WebSocket.CLOSED){connect(()=>rejoin());}},delay);}});
   ws.addEventListener('error',()=>{if(state.ws===ws)notify('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.');});
 }
 function send(event,data={}) { if (!state.ws || state.ws.readyState!==WebSocket.OPEN) { notify('서버와 연결이 끊겼습니다. 잠시 후 다시 시도해 주세요.'); return false; } state.ws.send(JSON.stringify({event,data})); return true; }
 function rejoin() { const saved=JSON.parse(localStorage.getItem('one-night-session')||'null'); if(saved){reconnecting=true;send('room:reconnect',saved);} }
 function returnToHome() {
+  finishIceConfig(null, '방에서 나갔습니다.');rtcConfig=null;rtcError='';reconnectAttempt=0;
   localStorage.removeItem('one-night-session');
   const ws=state.ws;state.ws=null;
   ws?.close();
@@ -55,10 +119,15 @@ function leaveLobby() {
   if(!send('room:leave'))returnToHome();
 }
 function handleMessage(event,data) {
+  if(event==='connection:pong')return;
+  if(event==='rtc:config'){finishIceConfig(data);return;}
+  if(event==='rtc:config-error'){finishIceConfig(null,data.message);return;}
+  if(event==='error'&&reconnecting&&data.message==='재접속 정보를 찾을 수 없습니다.'){returnToHome();notify('이전 방이 종료되어 첫 화면으로 돌아왔습니다. 새 방을 만들어 주세요.');return;}
+  if(event==='room:joined')reconnecting=false;
   if(event==='room:left'){returnToHome();return;}
   if(event==='room:notice'){notify(data.message);return;}
   if(event==='error'){leavingRoom=false;nightActionPending=false;state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
-  if(event==='room:joined') { nightActionPending=false;state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncPeers();render();return; }
+  if(event==='room:joined') { reconnectAttempt=0;nightActionPending=false;state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncMediaToPhase();syncPeers();render();return; }
   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
     const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
     // Night prompts are private and may otherwise remain visible after their
@@ -261,6 +330,8 @@ function render() {
   const oldScroll=oldBox?.scrollTop||0;
   const follow=oldBox&&oldBox.scrollHeight-oldScroll-oldBox.clientHeight<48;
   if(!state.room)landing();else gameView();
+  app?.insertAdjacentHTML('afterbegin', browserNotice() + connectionNotice());
+  document.querySelector('#retry-media')?.addEventListener('click', retryMedia);
   const input=document.querySelector('#chat-input');
   if(input&&oldInput){input.value=draft;if(keepChatFocus){input.focus({preventScroll:true});input.setSelectionRange(start??draft.length,end??draft.length);}}
   const notes=document.querySelector('#private-notes');if(notes&&notesOpen)notes.open=true;
@@ -411,11 +482,16 @@ function bindMediaElements() {
   for(const tile of document.querySelectorAll('.video-tile')){const id=tile.id.slice(5);const stream=id===state.playerId?state.localStream:state.remoteStreams.get(id);const hasVideo=(stream?.getVideoTracks()||[]).some(track=>track.readyState==='live'&&track.enabled&&!track.muted);tile.classList.toggle('has-video',Boolean(hasVideo));}
 }
 
-function syncPeers(force=false) {
+async function syncPeers(force=false) {
   if(!state.room||!state.playerId)return;
   const others=state.room.players.filter(p=>p.id!==state.playerId&&p.connected&&!p.isBot);
   for(const [id,pc] of state.peers)if(!others.some(p=>p.id===id)){pc.close();state.peers.delete(id);state.remoteStreams.delete(id);}
-  if(state.room.phase==='discussion'||state.micOn||state.cameraOn||force)for(const peer of others){
+  if(!(state.room.phase==='discussion'||state.micOn||state.cameraOn||force))return;
+  const room=state.room;
+  try { await loadIceConfig(); } catch(error) { if(state.room===room){rtcError=error.message;render();notify(rtcError);}return; }
+  if(state.room?.code!==room.code||!state.room||!(state.room.phase==='discussion'||state.micOn||state.cameraOn||force))return;
+  for(const peer of others){
+    if(!state.room.players.some(p=>p.id===peer.id&&p.connected&&!p.isBot))continue;
     // One offerer per pair avoids simultaneous startup creating duplicate tracks.
     const pc=state.peers.get(peer.id)||createPeer(peer.id,state.playerId<peer.id);
     void syncLocalMediaToPeer(pc).catch(()=>notify('참가자에게 음성·영상을 연결하지 못했습니다.'));
@@ -423,17 +499,22 @@ function syncPeers(force=false) {
 }
 function createPeer(id,initiator=false) {
   if(state.peers.has(id))return state.peers.get(id);
-  const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});pc.polite=state.playerId>id;pc.makingOffer=false;pc.ignoreOffer=false;pc.settingRemoteAnswer=false;pc.pendingCandidates=[];state.peers.set(id,pc);
+  const pc=new RTCPeerConnection({iceServers:rtcConfig.iceServers,iceTransportPolicy:rtcConfig.iceTransportPolicy});pc.polite=state.playerId>id;pc.makingOffer=false;pc.ignoreOffer=false;pc.settingRemoteAnswer=false;pc.pendingCandidates=[];state.peers.set(id,pc);
   if(initiator){pc.addTransceiver('audio',{direction:'sendrecv'});pc.addTransceiver('video',{direction:'sendrecv'});setPeerSenders(pc);}
   pc.onicecandidate=(e)=>{if(e.candidate)send('webrtc:ice-candidate',{to:id,payload:e.candidate});};
   pc.ontrack=(e)=>{let stream=state.remoteStreams.get(id);if(!stream){stream=new MediaStream();state.remoteStreams.set(id,stream);}if(!stream.getTracks().some(track=>track.id===e.track.id))stream.addTrack(e.track);setPeerSenders(pc);const updateVideo=()=>bindMediaElements();e.track.addEventListener('mute',updateVideo);e.track.addEventListener('unmute',updateVideo);e.track.addEventListener('ended',updateVideo);updateVideo();};
-  pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'||pc.connectionState==='disconnected')notify(`${playerName(id)}님과 미디어 연결이 끊겼습니다.`);};
+  pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'){notify(`${playerName(id)}님과 미디어 연결을 다시 시도합니다.`);if(!pc.recoveryAt||Date.now()-pc.recoveryAt>15000){pc.recoveryAt=Date.now();void loadIceConfig().then(()=>{if(state.peers.get(id)===pc)pc.restartIce();}).catch(error=>{rtcError=error.message;render();});}}else if(pc.connectionState==='disconnected')notify(`${playerName(id)}님과 미디어 연결이 끊겼습니다. 연결이 돌아오지 않으면 미디어 연결 재시도를 눌러 주세요.`);};
   pc.onnegotiationneeded=async()=>{try{pc.makingOffer=true;await syncLocalMediaToPeer(pc);await pc.setLocalDescription();if(pc.localDescription?.type==='offer')send('webrtc:offer',{to:id,payload:pc.localDescription});}catch{if(pc.connectionState!=='closed')notify('음성·영상 연결 협상이 실패했습니다.');}finally{pc.makingOffer=false;}};
   return pc;
 }
 async function handleSignal(event,data) {
   if(!state.room?.players.some(p=>p.id===data.from&&!p.isBot))return;
-  let pc=state.peers.get(data.from);if(!pc)pc=createPeer(data.from,false);
+  let pc=state.peers.get(data.from);if(!pc){
+    const room=state.room;
+    try{await loadIceConfig();}catch(error){rtcError=error.message;render();return;}
+    if(!state.room||state.room.code!==room.code||!state.room.players.some(p=>p.id===data.from&&p.connected&&!p.isBot))return;
+    pc=createPeer(data.from,false);
+  }
   // WebSocket messages arrive in order, but their async SDP work must finish in
   // order too. Keep early ICE until a remote description has been installed.
   pc.signalQueue=(pc.signalQueue||Promise.resolve()).then(async()=>{
@@ -462,3 +543,7 @@ globalThis.addEventListener?.('pagehide',stopCamera);
 function scrollChat() {const box=document.querySelector('#chat-box');if(box)box.scrollTop=box.scrollHeight;}
 setInterval(()=>{state.timerNow=Date.now();const room=state.room;if(room?.timerEndsAt){const ms=Math.max(0,room.timerEndsAt-state.timerNow);const s=Math.ceil(ms/1000);const node=document.querySelector('#timer');if(node)node.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}},500);
 render();
+globalThis.addEventListener?.('online',checkConnection);
+globalThis.addEventListener?.('pageshow',checkConnection);
+document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible'){checkConnection();bindMediaElements();}});
+setInterval(checkConnection,15000);
