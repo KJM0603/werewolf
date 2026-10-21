@@ -1,0 +1,2 @@
+# Preserve received originals byte-for-byte, including patch context whitespace.
+docs/received/* -text -diff

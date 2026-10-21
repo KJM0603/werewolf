@@ -196,3 +196,6 @@ body:has(.discussion-shell) { overflow:hidden; }
   .discussion-tools .btn { font-size:10px; padding:9px 5px; }
   .discussion-tools small { font-size:9px; }
 }
+/* Guidance remains visible without preventing chat-only play. */
+.connection-notice{max-width:1120px;margin:12px auto;padding:14px 18px;border:1px solid #716044;border-radius:12px;background:#28231c;color:#f1e6d2;font-size:14px;line-height:1.6}
+.connection-notice p{margin:4px 0 10px}
