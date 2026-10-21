@@ -5,7 +5,7 @@ import test from 'node:test';
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').split('setInterval(()=>')[0];
 function ui(document={querySelector:()=>null}) {
   const context=vm.createContext({document,setTimeout(){},clearTimeout(){},WebSocket:{OPEN:1}});
-  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,bindGameEvents,bindChatEvents,chatPanel,nightPanel,submitNight,render};`,context);
+  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,bindGameEvents,bindChatEvents,chatPanel,nightPanel,nightTable,selectNightCard,nightSelectionReady,submitNight,render,toggleMobileDiscussion,syncDiscussionViewport,updateMobileDiscussionControls};`,context);
   return {...context.api,context};
 }
 function result(roles,wins,killed=[]) {
@@ -13,6 +13,34 @@ function result(roles,wins,killed=[]) {
     winners:wins.map((win,i)=>({id:`p${i}`,win})),killed,center:['늑대인간','늑대인간','주민'],
     villageWin:false,wolfTeamWin:false,minionWin:false};
 }
+
+test('result splash and details offer restart for host and exit for every player',()=>{
+  const f=ui();f.state.playerId='p0';f.state.room={phase:'result',hostId:'p0',result:result(['villager'],[true])};
+  for(const complete of [false,true]){
+    f.state.resultSplashComplete=complete;
+    assert.match(f.resultPanel(),/id="restart-game"/);assert.match(f.resultPanel(),/id="leave-room"/);
+    f.state.room.hostId='p1';assert.doesNotMatch(f.resultPanel(),/id="restart-game"/);
+    assert.match(f.resultPanel(),/방장이 다시 하기를/);f.state.room.hostId='p0';
+  }
+});
+test('result buttons bind exit and restart, prevent duplicate requests and allow retry on errors',()=>{
+  const handlers={},sent=[];
+  const f=ui({querySelector:id=>['#home-button','#leave-room','#restart-game'].includes(id)?{addEventListener:(_,fn)=>handlers[id]=fn}:null,querySelectorAll:()=>[]});
+  vm.runInContext('render=()=>{};notify=()=>{};',f.context);
+  f.state.playerId='p0';f.state.room={phase:'result',hostId:'p0',players:[]};
+  f.state.ws={readyState:1,send:raw=>sent.push(JSON.parse(raw))};f.bindGameEvents();
+  handlers['#restart-game']();handlers['#restart-game']();assert.equal(sent.length,1);assert.equal(sent[0].event,'game:restart');
+  f.handleMessage('error',{});handlers['#restart-game']();assert.equal(sent.length,2);
+  f.handleMessage('error',{});handlers['#home-button']();handlers['#leave-room']();
+  assert.equal(sent.length,3);assert.equal(sent[2].event,'room:leave');
+});
+test('returning to the same lobby clears private round data and invalidates old result splash callback',()=>{
+  const f=ui();vm.runInContext('render=()=>{};notify=()=>{};syncPeers=()=>{};syncMediaToPhase=()=>{};saveSession=()=>{};',f.context);
+  Object.assign(f.state,{room:{phase:'result'},privateRole:'seer',privateResults:[{text:'old secret'}],selectedTarget:'p1',selectedCenter:[0],resultSplashComplete:false,resultSplashId:4});
+  f.handleMessage('room:state',{code:'SAME',phase:'lobby',hostId:'p0'});
+  assert.equal(f.state.privateRole,null);assert.equal(f.state.privateResults.length,0);assert.equal(f.state.selectedTarget,null);
+  assert.equal(f.state.selectedCenter.length,0);assert.equal(f.state.resultSplashComplete,true);assert.equal(f.state.resultSplashId,5);
+});
 test('copied ability stays available after a failed send or server rejection and can be retried',()=>{
   const f=ui();const sent=[];
   vm.runInContext('render=()=>{};notify=()=>{};send=()=>false;',f.context);
@@ -39,7 +67,7 @@ test('copy result followed by a new action displays the copied controls above ro
   assert.match(html,/예언자 능력을 지금 사용하세요/);
   assert.ok(html.indexOf('id="submit-night"')<html.indexOf('class="night-result"'));
   assert.ok(html.indexOf('id="submit-night"')<html.indexOf('id="role-card"'));
-  assert.doesNotMatch(html,/id="submit-night" disabled/);
+  assert.match(html,/id="submit-night" disabled/);
 });
 for(const [name,data,expected] of [
   ['all wolves in center and villager killed',result(['villager','seer','robber'],[false,false,false],['p0']),'승리한 사람이 없습니다'],
@@ -134,4 +162,184 @@ test('discussion consent updates only its controls, leaving chat and video mount
   assert.equal(button['aria-pressed'],'true');assert.equal(button.disabled,false);
   assert.equal(count.textContent,'동의 1/4명 · 3명 필요');
   assert.equal(input.value,'아직 설명 중입니다.');
+});
+
+function mobileDiscussion() {
+  const shell={dataset:{},style:{values:{},setProperty(key,value){this.values[key]=value;}}};
+  const button={setAttribute(key,value){this[key]=value;}};
+  const input={value:'작성 중인 의견',selectionStart:4,blur(){}};
+  const rows=[];
+  const box={scrollTop:120,scrollHeight:1600,clientHeight:300,append(row){rows.push(row);},querySelectorAll(){return rows;}};
+  const video={srcObject:{id:'ongoing-stream'}};
+  const nodes={'.discussion-shell':shell,'#mobile-chat-toggle':button,'#chat-input':input,'#chat-box':box,'#video-p0':video};
+  const f=ui({querySelector:selector=>nodes[selector]||null,
+    createElement:()=>({append(){}}),createTextNode:text=>({text})});
+  f.context.matchMedia=()=>({matches:true});
+  vm.runInContext('render=()=>{throw new Error("View switch must retain mounted media and chat");};',f.context);
+  f.state.room={phase:'discussion'};f.state.playerId='p0';
+  return {...f,shell,button,input,box,video};
+}
+
+test('merged discussion keeps media recovery inside the fixed mobile shell without duplicate controls',()=>{
+  const appNode={innerHTML:'',insertAdjacentHTML(_,html){this.innerHTML=html+this.innerHTML;}};
+  const f=ui({querySelector:selector=>selector==='#app'?appNode:null,querySelectorAll:()=>[]});
+  f.context.navigator={userAgent:'Mozilla'};
+  vm.runInContext('bindAudio=()=>{};bindVideo=()=>{};bindMediaElements=()=>{};',f.context);
+  f.state.playerId='p0';
+  f.state.room={phase:'discussion',code:'MERGED',players:[],roles:[],chat:[],hostId:'p0'};
+  f.render();
+  assert.equal((appNode.innerHTML.match(/id="retry-media"/g)||[]).length,1);
+  assert.ok(appNode.innerHTML.indexOf('discussion-top-actions')<appNode.innerHTML.indexOf('id="retry-media"'));
+  vm.runInContext("rtcError='연결을 다시 시도해 주세요.';",f.context);f.render();
+  assert.match(appNode.innerHTML,/discussion-connection-error/);
+  assert.match(appNode.innerHTML,/연결을 다시 시도해 주세요/);
+});
+
+test('mobile starts with video, counts hidden incoming messages, and retains draft and history on round trips',()=>{
+  const f=mobileDiscussion();f.updateMobileDiscussionControls();
+  assert.equal(f.shell.dataset.mobileView,'video');
+  f.handleMessage('chat:message',{playerId:'p1',name:'다른 참가자',text:'제 의견입니다.'});
+  assert.equal(f.button.textContent,'채팅 (1)');
+  f.handleMessage('chat:message',{playerId:'p0',name:'나',text:'제 메시지'});
+  assert.equal(f.button.textContent,'채팅 (1)');
+  f.toggleMobileDiscussion();
+  assert.equal(f.shell.dataset.mobileView,'chat');assert.equal(f.button['aria-pressed'],'true');
+  f.box.scrollTop=120;
+  f.toggleMobileDiscussion();
+  assert.equal(f.shell.dataset.mobileView,'video');assert.equal(f.button.textContent,'채팅');
+  // Hidden elements have zero layout dimensions. Receiving there must not erase the saved reading position.
+  f.box.scrollHeight=0;f.box.clientHeight=0;f.box.scrollTop=0;
+  f.handleMessage('chat:message',{playerId:'p2',name:'참가자',text:'추가 의견'});
+  f.box.scrollHeight=1700;f.box.clientHeight=300;
+  f.toggleMobileDiscussion();
+  assert.equal(f.box.scrollTop,120);assert.equal(f.button.textContent,'영상으로');
+  assert.equal(f.input.value,'작성 중인 의견');assert.equal(f.input.selectionStart,4);
+  assert.equal(f.video.srcObject.id,'ongoing-stream');
+  f.handleMessage('chat:message',{playerId:'p1',name:'참가자',text:'읽는 중 수신'});
+  assert.equal(f.button.textContent,'영상으로');
+});
+
+test('mobile keyboard viewport changes resize the shell without replacing draft or playing media',()=>{
+  const f=mobileDiscussion();f.toggleMobileDiscussion();
+  f.context.visualViewport={height:400,offsetTop:24};
+  f.syncDiscussionViewport();
+  assert.equal(f.shell.style.values['--discussion-viewport-height'],'400px');
+  assert.equal(f.shell.style.values['--discussion-viewport-top'],'24px');
+  assert.equal(f.shell.dataset.mobileView,'chat');
+  assert.equal(f.input.value,'작성 중인 의견');assert.equal(f.video.srcObject.id,'ongoing-stream');
+});
+
+test('desktop ignores mobile switch and mobile chat closes when voting begins',()=>{
+  const f=mobileDiscussion();
+  f.context.matchMedia=()=>({matches:false});
+  f.toggleMobileDiscussion();f.updateMobileDiscussionControls();
+  assert.equal(f.shell.dataset.mobileView,'video');
+  f.context.matchMedia=()=>({matches:true});f.toggleMobileDiscussion();
+  vm.runInContext('saveSession=()=>{};syncPeers=()=>{};syncMediaToPhase=()=>{};render=()=>{};notify=()=>{};',f.context);
+  f.handleMessage('game:phase',{phase:'voting',hostId:'p0'});
+  f.updateMobileDiscussionControls();
+  assert.equal(f.shell.dataset.mobileView,'video');
+  f.toggleMobileDiscussion();assert.equal(f.shell.dataset.mobileView,'video');
+});
+
+function tableFixture(role='seer',count=10) {
+  const f=ui({querySelector:()=>null,querySelectorAll:()=>[]});
+  vm.runInContext('render=()=>{};notify=()=>{};saveSession=()=>{};syncPeers=()=>{};syncMediaToPhase=()=>{};',f.context);
+  f.state.playerId='p0';f.state.room={phase:'night',nightTurn:role,players:Array.from({length:count},(_,i)=>({id:'p'+i,name:'참가자 '+i}))};
+  f.state.prompt={role,targetRole:role,players:f.state.room.players.slice(1),centerCount:3};
+  const sent=[];f.state.ws={readyState:1,send:message=>sent.push(JSON.parse(message))};
+  return {...f,sent};
+}
+test('insomniac sees the granted own card, while replay keeps the table face down',()=>{
+  const f=tableFixture('insomniac');f.state.prompt=null;
+  f.handleMessage('night:info',{role:'insomniac',currentRole:'werewolf'});
+  assert.match(f.nightTable(),/내 자리 · 확인 당시 늑대인간/);
+  f.handleMessage('room:state',{...f.state.room,nightTurn:'seer'});
+  f.handleMessage('night:info',{role:'insomniac',currentRole:'werewolf',replay:true});
+  assert.doesNotMatch(f.nightTable(),/table-card-face/);
+});
+for(const role of ['werewolf','mason'])test(`${role} flips only granted waking cards and keeps them through the public turn update`,()=>{
+  const f=tableFixture(role,5);f.state.room.nightTurn='doppelganger';f.state.prompt=null;
+  const data={role,others:['참가자 1'],table:{revealed:[{playerId:'p0',role,awakening:true},{playerId:'p1',role,awakening:true}]}};
+  f.handleMessage('night:info',data);
+  f.handleMessage('room:state',{...f.state.room,nightTurn:role});
+  const html=f.nightTable();assert.equal((html.match(/table-card-face/g)||[]).length,2);
+  assert.match(html,new RegExp('내 자리 · 깨어난 역할 '+(role==='werewolf'?'늑대인간':'프리메이슨')));
+  assert.doesNotMatch(html,/<button[^>]*data-night-player="p2"[^>]*>\s*<span class="table-card-face"/);
+  f.handleMessage('game:paused',{...f.state.room,phase:'paused',nightTurn:null});
+  f.handleMessage('game:resumed',{...f.state.room,phase:'night',nightTurn:role});
+  assert.equal((f.nightTable().match(/table-card-face/g)||[]).length,2);
+  f.handleMessage('room:state',{...f.state.room,nightTurn:'seer'});
+  assert.doesNotMatch(f.nightTable(),/table-card-face/);
+  f.handleMessage('night:info',{...data,replay:true});assert.doesNotMatch(f.nightTable(),/table-card-face/);
+});
+test('lone wolf retains its own card through the prompt, then reveals just one center with it',()=>{
+  const f=tableFixture('werewolf',3);f.state.room.nightTurn='doppelganger';f.state.prompt=null;
+  const own={playerId:'p0',role:'werewolf',awakening:true};
+  f.handleMessage('night:info',{role:'werewolf',loneWolf:true,table:{revealed:[own]}});
+  f.handleMessage('night:prompt',{role:'werewolf',targetRole:'werewolf',players:f.state.room.players.slice(1),centerCount:3});
+  f.handleMessage('room:state',{...f.state.room,nightTurn:'werewolf'});
+  assert.equal((f.nightTable().match(/table-card-face/g)||[]).length,1);
+  f.selectNightCard('center',1);f.submitNight();
+  f.handleMessage('night:result',{table:{revealed:[own,{centerIndex:1,role:'seer'}]}});
+  assert.equal((f.nightTable().match(/table-card-face/g)||[]).length,2);
+  assert.match(f.nightTable(),/내 자리 · 깨어난 역할 늑대인간/);
+  assert.match(f.nightTable(),/중앙 카드 2 · 확인 당시 예언자/);
+});
+test('insomniac reveal survives the actual info-before-phase message order',()=>{
+  const f=tableFixture('insomniac');f.state.room.nightTurn='drunk';f.state.prompt=null;
+  f.handleMessage('night:info',{role:'insomniac',currentRole:'werewolf'});
+  f.handleMessage('room:state',{...f.state.room,nightTurn:'insomniac'});
+  assert.equal((f.nightTable().match(/table-card-face/g)||[]).length,1);
+  assert.match(f.nightTable(),/내 자리 · 확인 당시 늑대인간/);
+  f.handleMessage('game:phase',{...f.state.room,phase:'discussion',nightTurn:null});
+  assert.doesNotMatch(f.nightTable(),/table-card-face/);
+});
+test('table seer changes between player and center selections without ambiguous submissions',()=>{
+  const f=tableFixture();assert.equal(f.nightSelectionReady(),false);
+  f.selectNightCard('player','p1');assert.equal(f.nightSelectionReady(),true);
+  f.selectNightCard('center',0);assert.equal(f.state.selectedTarget,null);assert.equal(f.nightSelectionReady(),false);
+  f.selectNightCard('center',2);assert.equal(f.nightSelectionReady(),true);
+  f.selectNightCard('player','p2');assert.equal(f.state.selectedCenter.length,0);
+  f.selectNightCard('player','p2');assert.equal(f.nightSelectionReady(),false);
+  f.selectNightCard('center',2);f.selectNightCard('center',1);f.submitNight();
+  assert.deepEqual(f.sent,[{event:'night:action',data:{targetId:null,centerIndexes:[2,1]}}]);
+  f.selectNightCard('center',0);assert.deepEqual(Array.from(f.state.selectedCenter),[2,1]);
+  f.submitNight();assert.equal(f.sent.length,1);
+});
+test('table troublemaker requires two other players, supports deselection, and blocks paused or expired turns',()=>{
+  const f=tableFixture('troublemaker');f.selectNightCard('player','p0');assert.equal(f.state.selectedTarget,null);
+  f.selectNightCard('player','unknown');assert.equal(f.state.selectedTarget,null);
+  f.selectNightCard('player','p1');assert.equal(f.nightSelectionReady(),false);
+  f.selectNightCard('player','p2');assert.equal(f.nightSelectionReady(),true);
+  f.selectNightCard('player','p1');assert.equal(f.state.selectedTarget,'p2');assert.equal(f.nightSelectionReady(),false);
+  f.selectNightCard('player','p3');f.state.room.phase='paused';f.submitNight();assert.equal(f.sent.length,0);
+  f.state.room.phase='night';f.handleMessage('night:turn-ended',{reason:'timeout'});f.submitNight();assert.equal(f.sent.length,0);
+  assert.equal(f.state.prompt,null);assert.doesNotMatch(f.nightPanel(),/id="submit-night"/);
+});
+test('table shows only server-granted faces and hides snapshots on replay or next turn',()=>{
+  const f=tableFixture();
+  assert.equal((f.nightTable().match(/data-night-player=/g)||[]).length,10);
+  assert.equal((f.nightTable().match(/data-center=/g)||[]).length,3);
+  assert.doesNotMatch(f.nightTable(),/table-card-face/);
+  const data={title:'중앙 확인',table:{revealed:[{centerIndex:2,role:'hunter'}]}};
+  f.handleMessage('night:result',data);
+  assert.equal((f.nightTable().match(/table-card-face/g)||[]).length,1);assert.match(f.nightTable(),/확인 당시 사냥꾼/);
+  f.handleMessage('room:state',{...f.state.room,nightTurn:'robber'});assert.doesNotMatch(f.nightTable(),/table-card-face/);
+  f.handleMessage('night:result',{...data,replay:true});assert.doesNotMatch(f.nightTable(),/table-card-face/);
+});
+test('blind exchanges animate backs without revealing any roles',()=>{
+  const f=tableFixture('drunk');f.selectNightCard('center',1);f.submitNight();
+  assert.deepEqual(f.sent,[{event:'night:action',data:{centerIndex:1}}]);
+  f.handleMessage('night:result',{title:'역할 교환',table:{swapped:[{playerId:'p0'},{centerIndex:1}]}});
+  assert.equal((f.nightTable().match(/flying-card/g)||[]).length,2);
+  assert.doesNotMatch(f.nightTable(),/table-card-face/);
+});
+test('copied role card interaction remains usable through errors and subsequent ability',()=>{
+  const f=tableFixture('doppelganger',3);f.selectNightCard('player','p1');f.submitNight();
+  f.handleMessage('night:result',{currentRole:'robber',table:{revealed:[{playerId:'p1',role:'robber'}]}});
+  f.handleMessage('night:prompt',{role:'doppelganger-copy',targetRole:'robber',players:f.state.room.players.slice(1),centerCount:3});
+  f.selectNightCard('player','p2');f.submitNight();f.handleMessage('error',{message:'retry'});
+  assert.equal(f.nightSelectionReady(),true);assert.equal(f.state.selectedTarget,'p2');f.submitNight();
+  assert.equal(f.sent.length,3);assert.equal(f.sent.at(-1).data.targetId,'p2');
 });

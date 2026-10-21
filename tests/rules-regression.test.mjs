@@ -94,6 +94,51 @@ test('copied ability timeout explicitly ends the turn without changing the publi
   assert.ok(f.messages('p0').some(m=>m.event==='night:turn-ended'&&m.data.reason==='timeout'));
 });
 
+test('restart retains room, members and roles but clears all previous round state before a second game',()=>{
+  const f=fixture(['werewolf','seer','robber']);const room=f.room;
+  f.startGame(room);f.vote(['p1','p0','p0']);
+  room.customRoles=true;room.copyRoles.set('p0','seer');room.actionDone.add('seer:p1');
+  room.extensionUsed.add('p1');room.discussionSkipVotes=new Set(['p0']);room.discussionSeconds=660;
+  room.players.get('p1').knowledge.events.push({event:'night:result',data:{text:'old secret'}});
+  const identities=[...room.players.values()].map(p=>[p.id,p.token,p.socket]);const roles=[...room.roles];
+  f.handle(room.players.get('p0').socket,'game:restart',{});
+  assert.equal(f.rooms.get('AUDIT'),room);assert.equal(room.phase,'lobby');assert.equal(room.hostId,'p0');
+  assert.deepEqual([...room.roles],roles);assert.equal(room.customRoles,true);
+  assert.deepEqual([...room.players.values()].map(p=>[p.id,p.token,p.socket]),identities);
+  for(const key of ['startRoles','copyRoles','votes','actionDone','extensionUsed','discussionSkipVotes'])assert.equal(room[key].size,0,key);
+  for(const key of ['cards','center','actionActors'])assert.equal(room[key].length,0,key);
+  for(const key of ['result','timer','timerEndsAt','activeRole','actionPrompt','pauseReason'])assert.equal(room[key],null,key);
+  assert.equal(room.discussionSeconds,600);assert.equal(room.remainingMs,0);
+  assert.ok([...room.players.values()].every(p=>!p.ready&&!p.knowledge));
+  const restored=f.reconnect('p1');assert.ok(restored.every(m=>!['role:private','night:result','night:prompt'].includes(m.event)));
+  f.handle(room.players.get('p0').socket,'game:start',{});assert.equal(room.phase,'lobby');
+  for(const id of ['p1','p2'])f.handle(room.players.get(id).socket,'player:ready',{ready:true});
+  f.handle(room.players.get('p0').socket,'game:start',{});
+  assert.equal(room.phase,'role_reveal');assert.equal(room.startRoles.size,3);assert.equal(room.code,'AUDIT');
+  assert.ok([...room.players.values()].every(p=>p.knowledge.events.length===0));
+});
+test('restart rejects nonhosts, stale sockets, active games and duplicate requests',()=>{
+  const f=fixture(['werewolf','seer','robber']);const ws=f.room.players.get('p0').socket;
+  f.handle(ws,'game:restart',{});assert.equal(f.room.phase,'night');assert.equal(ws.messages.at(-1).event,'error');
+  f.vote(['p1','p0','p0']);
+  f.handle(f.room.players.get('p1').socket,'game:restart',{});assert.equal(f.room.phase,'result');
+  f.handle({...ws},'game:restart',{});assert.equal(f.room.phase,'result');
+  f.handle(ws,'game:restart',{});f.room.players.get('p1').ready=true;
+  f.handle(ws,'game:restart',{});assert.equal(f.room.players.get('p1').ready,true);
+});
+test('result host can leave, successor restarts with bots and final human departure deletes room',()=>{
+  const f=fixture(['werewolf','seer','robber','villager']);f.room.players.get('p1').isBot=true;
+  f.room.hasTestBots=true;f.vote(['p1','p0','p0','p0']);const result=f.room.result;
+  const oldHost=f.room.players.get('p0').socket;
+  f.handle(oldHost,'room:leave',{});assert.equal(f.room.hostId,'p2');assert.equal(f.room.result,result);
+  assert.equal(f.reconnect('p0').at(-1).event,'error');
+  f.handle(f.room.players.get('p2').socket,'game:restart',{});
+  assert.equal(f.room.phase,'lobby');assert.equal(f.room.roles.length,6);assert.equal(f.room.players.get('p1').ready,true);
+  f.room.phase='result';
+  for(const id of ['p2','p3'])f.handle(f.room.players.get(id).socket,'room:leave',{});
+  assert.equal(f.rooms.has('AUDIT'),false);
+});
+
 test('lobby chat broadcasts to other players and remains available after reconnect and game start',()=>{
   const f=fixture(['villager','seer','robber']);f.room.phase='lobby';
   f.handle(f.room.players.get('p1').socket,'chat:send',{text:'  준비됐습니다  '});
@@ -298,6 +343,30 @@ test('PASS baseline: masons identify each other privately',()=>{
   assert.deepEqual(f.messages('p0').find(m=>m.event==='night:info').data.others,['p1']);
   assert.equal(f.messages('p2').filter(m=>m.event==='night:info').length,0);
 });
+for(const role of ['werewolf','mason']) {
+  for(const count of [1,2])test(`${role} privately grants exactly its waking participants' cards (${count})`,()=>{
+    const f=fixture([role,count===2?role:'villager','villager']);
+    // An earlier copied robber may have moved a card. Waking companions do not
+    // learn that hidden change; they identify the original waking role only.
+    f.room.cards.find(c=>c.ownerId==='p0').role='tanner';
+    f.beginAction(f.room,role);
+    const info=f.messages('p0').find(m=>m.event==='night:info').data;
+    assert.deepEqual(info.table.revealed,Array.from({length:count},(_,i)=>({playerId:`p${i}`,role,awakening:true})));
+    assert.ok(!JSON.stringify(info.table).includes('tanner'));
+    assert.ok(!JSON.stringify(f.publicRoom(f.room)).includes('revealed'));
+    assert.equal(f.messages('p2').filter(m=>m.event==='night:info').length,0);
+  });
+  test(`copied ${role} joins the same private waking-card group`,()=>{
+    const f=fixture(['doppelganger',role,role,'villager']);f.room.copyRoles.set('p0',role);
+    f.beginAction(f.room,role);
+    for(const id of ['p0','p1','p2']){
+      const info=f.messages(id).find(m=>m.event==='night:info').data;
+      assert.deepEqual(info.table.revealed.map(c=>c.playerId),['p0','p1','p2']);
+      assert.ok(info.table.revealed.every(c=>c.role===role&&c.awakening));
+    }
+    assert.equal(f.messages('p3').filter(m=>m.event==='night:info').length,0);
+  });
+}
 test('PASS baseline: minion knows wolves but wolves do not learn minion',()=>{
   const f=fixture(['minion','werewolf','werewolf']);f.beginAction(f.room,'minion');
   assert.deepEqual(f.messages('p0').find(m=>m.event==='night:info').data.wolves,['p1','p2']);
@@ -508,4 +577,21 @@ test('skip is unavailable without bots, to nonhosts, and during pause',()=>{
   f.handle(f.room.players.get('p0').socket,'game:pause',{});
   f.handle(f.room.players.get('p0').socket,'game:skip-phase',{});
   assert.equal(f.room.phase,'paused');
+});
+
+for(const [role,input,expected] of [
+  ['seer',{targetId:'p1'},{revealed:[{playerId:'p1',role:'hunter'}]}],
+  ['seer',{centerIndexes:[2,0]},{revealed:[{centerIndex:2,role:'tanner'},{centerIndex:0,role:'werewolf'}]}],
+  ['robber',{targetId:'p1'},{revealed:[{playerId:'p0',role:'hunter'}],swapped:[{playerId:'p0'},{playerId:'p1'}]}],
+  ['troublemaker',{targetId:'p1',secondTargetId:'p2'},{swapped:[{playerId:'p1'},{playerId:'p2'}]}],
+  ['drunk',{centerIndex:0},{swapped:[{playerId:'p0'},{centerIndex:0}]}],
+  ['doppelganger',{targetId:'p1'},{revealed:[{playerId:'p1',role:'hunter'}]}]
+])test('private table feedback respects '+role+' visibility: '+JSON.stringify(input),()=>{
+  const f=fixture([role,'hunter','villager'],['werewolf','seer','tanner']);
+  f.action(role,'p0',input);
+  assert.deepEqual(results(f,'p0').at(-1).data.table,expected);
+  for(const id of ['p1','p2'])assert.ok(f.messages(id).every(m=>!m.data.table));
+  assert.ok(!JSON.stringify(f.publicRoom(f.room)).includes('revealed'));
+  const replay=f.reconnect('p0').find(m=>m.event==='night:result');
+  assert.deepEqual(replay.data.table,expected);assert.equal(replay.data.replay,true);
 });

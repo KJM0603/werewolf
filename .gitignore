@@ -1,6 +1,9 @@
+# Local server output and historical experiments
+.local/
 node_modules/
 .env
 .env.*
 !.env.example
 *.log
+*.pid
 tmp/

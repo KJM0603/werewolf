@@ -1,0 +1,62 @@
+PASS: seven-player room, N+3 setup, private roles, automatic night actions, discussion
+PASS: chat broadcast reaches all four network clients
+PASS: one extension per player
+PASS: disconnect does not auto-pause; host pause/reconnect/resume preserves player identity
+PASS: all votes resolve; identical seven-player result on every connected client
+{
+  "players": 7,
+  "networkClients": 4,
+  "bots": 3,
+  "discussionSkippedUsingBuiltInTestControl": true,
+  "finalRoles": [
+    {
+      "name": "protocol-host",
+      "startRole": "villager",
+      "role": "seer",
+      "killed": true
+    },
+    {
+      "name": "AI · 달빛",
+      "startRole": "seer",
+      "role": "villager",
+      "killed": false
+    },
+    {
+      "name": "AI · 별빛",
+      "startRole": "werewolf",
+      "role": "werewolf",
+      "killed": false
+    },
+    {
+      "name": "AI · 새벽",
+      "startRole": "drunk",
+      "role": "robber",
+      "killed": false
+    },
+    {
+      "name": "protocol-peer1",
+      "startRole": "werewolf",
+      "role": "werewolf",
+      "killed": false
+    },
+    {
+      "name": "protocol-peer2",
+      "startRole": "troublemaker",
+      "role": "troublemaker",
+      "killed": false
+    },
+    {
+      "name": "protocol-peer3",
+      "startRole": "tanner",
+      "role": "tanner",
+      "killed": false
+    }
+  ],
+  "phases": [
+    "role_reveal",
+    "night",
+    "discussion",
+    "voting",
+    "vote_reveal"
+  ]
+}

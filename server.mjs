@@ -259,7 +259,8 @@ function beginAction(room, role) {
     const wolves = actorIds(room, 'werewolf');
     for (const id of room.actionActors) {
       const others = wolves.filter((other) => other !== id).map((other) => room.players.get(other)?.name);
-      privateSend(room, id, 'night:info', { role, others, loneWolf: wolves.length === 1 });
+      privateSend(room, id, 'night:info', { role, others, loneWolf: wolves.length === 1,
+        table: { revealed: wolves.map(playerId => ({ playerId, role, awakening: true })) } });
       if (wolves.length !== 1) room.actionDone.add(`${role}:${id}`);
     }
     if (wolves.length !== 1 || !active) {
@@ -275,7 +276,8 @@ function beginAction(room, role) {
     const masons = actorIds(room, 'mason');
     for (const id of room.actionActors) {
       const others = masons.filter((other) => other !== id).map((other) => room.players.get(other)?.name);
-      privateSend(room, id, 'night:info', { role, others });
+      privateSend(room, id, 'night:info', { role, others,
+        table: { revealed: masons.map(playerId => ({ playerId, role, awakening: true })) } });
       room.actionDone.add(`${role}:${id}`);
     }
     setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
@@ -351,6 +353,22 @@ function startGame(room) {
 
 function currentActors(room) { return room.actionActors; }
 
+function restartRoom(room) {
+  clearTimer(room);
+  Object.assign(room, {
+    phase: 'lobby', cards: [], center: [], startRoles: new Map(), copyRoles: new Map(),
+    votes: new Map(), result: null, actionDone: new Set(), actionActors: [], actionIndex: 0,
+    activeRole: null, actionPrompt: null, timerEndsAt: null, remainingMs: 0,
+    discussionSeconds: 600, votingSeconds: 20, extensionUsed: new Set(),
+    discussionSkipVotes: new Set(), voteRevealReason: null, pauseReason: null, previousPhase: null,
+  });
+  for (const player of room.players.values()) {
+    player.ready = Boolean(player.isBot);
+    player.knowledge = null;
+  }
+  broadcast(room, 'room:state', publicRoom(room));
+}
+
 function applyNightAction(room, playerId, data) {
   if (room.phase !== 'night' || room.actionPrompt?.playerId !== playerId || room.actionPrompt.role === 'doppelganger-copy' && room.actionPrompt.targetRole !== room.copyRoles.get(playerId) || room.actionPrompt.role !== 'doppelganger-copy' && room.actionPrompt.role !== room.activeRole) return send(room.players.get(playerId)?.socket, 'error', { message: '현재 차례가 아닙니다.' });
   const prompt = room.actionPrompt;
@@ -363,7 +381,7 @@ function applyNightAction(room, playerId, data) {
     const index = data.centerIndex;
     if (room.activeRole !== 'werewolf' || wolves.length !== 1 || wolves[0] !== playerId || room.actionDone.has(`werewolf:${playerId}`)) return emitError(room.players.get(playerId)?.socket, '혼자 깨어난 늑대인간만 중앙 카드 한 장을 확인할 수 있습니다.');
     if (!Number.isInteger(index) || index < 0 || index >= room.center.length || data.centerIndexes !== undefined) return emitError(room.players.get(playerId)?.socket, '중앙 카드 한 장을 선택해 주세요.');
-    privateSend(room, playerId, 'night:result', { title: `중앙 카드 ${index + 1} 확인`, roles: [ROLE_NAME[room.center[index].role]] });
+    privateSend(room, playerId, 'night:result', { title: `중앙 카드 ${index + 1} 확인`, roles: [ROLE_NAME[room.center[index].role]], table: { revealed: [{playerId,role:'werewolf',awakening:true},{centerIndex:index,role:room.center[index].role}] } });
     room.actionDone.add(`werewolf:${playerId}`);
     room.actionPrompt = null;
     return;
@@ -376,7 +394,7 @@ function applyNightAction(room, playerId, data) {
     const nextStep = IMMEDIATE_COPY_ROLES.has(copied) ? '지금 복사한 능력을 한 번 더 수행해 주세요.'
       : ['werewolf', 'mason', 'insomniac'].includes(copied) ? `${ROLE_NAME[copied]} 차례에 함께 행동합니다.`
       : copied === 'minion' ? '지금 늑대인간 정보를 확인합니다.' : '이 역할은 밤에 추가로 수행할 행동이 없습니다.';
-    privateSend(room, playerId, 'night:result', { title: '복사한 역할', currentRole: copied, text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[copied] || copied}입니다. ${nextStep}` });
+    privateSend(room, playerId, 'night:result', { title: '복사한 역할', currentRole: copied, table: { revealed: [{playerId:data.targetId,role:copied}] }, text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[copied] || copied}입니다. ${nextStep}` });
     if (copied === 'minion') {
       privateSend(room, playerId, 'night:info', { role: 'minion', wolves: actorIds(room, 'werewolf').map((id) => room.players.get(id)?.name) });
     }
@@ -386,21 +404,21 @@ function applyNightAction(room, playerId, data) {
       if (!validIndexes || new Set(data.centerIndexes).size !== 2) return send(room.players.get(playerId)?.socket, 'error', { message: '서로 다른 중앙 카드 두 장을 선택해 주세요.' });
       const roles = data.centerIndexes.map((i) => room.center[i]?.role).filter(Boolean);
       if (roles.length !== 2) return send(room.players.get(playerId)?.socket, 'error', { message: '중앙 카드 두 장을 선택해 주세요.' });
-      privateSend(room, playerId, 'night:result', { title: '중앙 카드 확인', roles: roles.map((r) => ROLE_NAME[r]) });
-    } else if (target(data.targetId)) privateSend(room, playerId, 'night:result', { title: '플레이어 확인', text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[playerCard(room, data.targetId)?.role]}입니다.` });
+      privateSend(room, playerId, 'night:result', { title: '중앙 카드 확인', roles: roles.map((r) => ROLE_NAME[r]), table: { revealed: data.centerIndexes.map((i)=>({centerIndex:i,role:room.center[i].role})) } });
+    } else if (target(data.targetId)) privateSend(room, playerId, 'night:result', { title: '플레이어 확인', table: { revealed: [{playerId:data.targetId,role:playerCard(room,data.targetId)?.role}] }, text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[playerCard(room, data.targetId)?.role]}입니다.` });
     else return send(room.players.get(playerId)?.socket, 'error', { message: '플레이어 한 명 또는 중앙 카드 두 장을 선택해 주세요.' });
   } else if (actingAs === 'robber' || actingAs === 'doppelganger-copy' && prompt.targetRole === 'robber') {
     if (!target(data.targetId) || !swap(playerId, data.targetId)) return send(room.players.get(playerId)?.socket, 'error', { message: '바꿀 플레이어를 선택해 주세요.' });
     const visibleRole = playerCard(room, playerId)?.role;
-    privateSend(room, playerId, 'night:result', { title: '역할 교환', currentRole: visibleRole, text: `새 역할은 ${ROLE_NAME[visibleRole]}입니다.` });
+    privateSend(room, playerId, 'night:result', { title: '역할 교환', currentRole: visibleRole, table: { revealed: [{playerId,role:visibleRole}], swapped: [{playerId},{playerId:data.targetId}] }, text: `새 역할은 ${ROLE_NAME[visibleRole]}입니다.` });
   } else if (actingAs === 'troublemaker' || actingAs === 'doppelganger-copy' && prompt.targetRole === 'troublemaker') {
     if (!target(data.targetId) || !target(data.secondTargetId) || data.targetId === data.secondTargetId || !swap(data.targetId, data.secondTargetId)) return send(room.players.get(playerId)?.socket, 'error', { message: '서로 다른 플레이어 두 명을 골라 주세요.' });
-    privateSend(room, playerId, 'night:result', { title: '역할 교환', text: '두 플레이어의 역할을 서로 바꿨습니다.' });
+    privateSend(room, playerId, 'night:result', { title: '역할 교환', table: { swapped: [{playerId:data.targetId},{playerId:data.secondTargetId}] }, text: '두 플레이어의 역할을 서로 바꿨습니다.' });
   } else if (actingAs === 'drunk' || actingAs === 'doppelganger-copy' && prompt.targetRole === 'drunk') {
     const index = Number(data.centerIndex); const own = playerCard(room, playerId); const center = room.center[index];
     if (!Number.isInteger(index) || !center || !own) return send(room.players.get(playerId)?.socket, 'error', { message: '중앙 카드 한 장을 선택해 주세요.' });
     own.ownerId = null; center.ownerId = playerId; room.center[index] = own;
-    privateSend(room, playerId, 'night:result', { title: '역할 교환', text: '중앙 카드와 역할을 바꿨습니다. 새 역할은 공개되지 않습니다.' });
+    privateSend(room, playerId, 'night:result', { title: '역할 교환', table: { swapped: [{playerId},{centerIndex:index}] }, text: '중앙 카드와 역할을 바꿨습니다. 새 역할은 공개되지 않습니다.' });
   } else {
     privateSend(room, playerId, 'night:result', { title: '밤 행동 완료', text: '행동을 완료했습니다.' });
   }
@@ -565,7 +583,7 @@ function handle(ws, event, data) {
   }
 
   if (event === 'room:leave') {
-    if (room.phase !== 'lobby') return emitError(ws, '대기실에서만 방을 나갈 수 있습니다.');
+    if (!['lobby', 'result'].includes(room.phase)) return emitError(ws, '대기실이나 게임 종료 후에 방을 나갈 수 있습니다.');
     if (player.socket !== ws || ws.closed) return emitError(ws, '현재 연결에서 다시 시도해 주세요.');
     room.players.delete(player.id);
     ws.room = null; ws.playerId = null;
@@ -625,6 +643,12 @@ function handle(ws, event, data) {
     if ([...room.players.values()].some((p) => !p.ready && p.id !== room.hostId)) return emitError(ws, '모든 참가자가 준비해야 시작할 수 있습니다.');
     if (room.roles.length !== room.players.size + 3) return emitError(ws, '인원에 맞는 역할 구성을 확인해 주세요.');
     startGame(room); return;
+  }
+  if (event === 'game:restart') {
+    if (player.socket !== ws || ws.closed) return emitError(ws, '현재 연결에서 다시 시도해 주세요.');
+    if (ws.playerId !== room.hostId) return emitError(ws, '방장만 다시 하기를 시작할 수 있습니다.');
+    if (room.phase !== 'result') return emitError(ws, '게임이 끝난 후에 다시 할 수 있습니다.');
+    restartRoom(room); return;
   }
   if (event === 'night:action') { applyNightAction(room, ws.playerId, data); return; }
   if (event === 'vote:cast' && room.phase === 'voting') {

@@ -2,6 +2,8 @@
 
 계정 없이 방 코드로 플레이하는 모바일 우선 웹 MVP입니다. Node.js 내장 HTTP 서버와 WebSocket 시그널링을 사용하므로 별도 패키지 설치 없이 실행할 수 있습니다.
 
+개발 환경과 자료 위치는 [개발 시작 안내](docs/DEVELOPMENT.md), 지금까지의 반영 사항은 [작업 내역](docs/PROGRESS.md)에 정리되어 있습니다. 이 저장소 폴더를 개발 기준으로 사용하세요.
+
 ## 실행
 
 하위 주소 배포, Cloudflare/자체 TURN 설정과 실제 휴대폰 검증 절차는 [배포 안내](docs/DEPLOYMENT.md)를 참고하세요. 받은 [패치](docs/received/base_path.patch), [배포 PDF](docs/received/늑대인간_배포안내.pdf), [사용설명서 PDF](docs/received/늑대인간_사용설명서.pdf)는 원본으로 보관했습니다. 패치는 이미 반영되어 있으며, 받은 사용설명서의 일부 시간·화면 설명은 현재 버전과 다릅니다.
