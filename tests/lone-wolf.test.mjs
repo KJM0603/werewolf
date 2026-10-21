@@ -38,10 +38,10 @@ function fixture(startRoles = ['werewolf', 'villager', 'villager'], copiedWolf =
 
 function results(messages) { return messages.filter(m => m.event === 'night:result'); }
 
-test('before selection, the lone wolf receives only card backs and no center identities', () => {
+test('before selection, the lone wolf receives its own waking card and no center identities', () => {
   const f = fixture();
   const info = f.messages[0].find(m => m.event === 'night:info').data;
-  assert.deepEqual(info, { role: 'werewolf', others: [], loneWolf: true });
+  assert.deepEqual(info, { role: 'werewolf', others: [], loneWolf: true, table: {revealed:[{playerId:'p0',role:'werewolf',awakening:true}]} });
   const prompt = f.messages[0].find(m => m.event === 'night:prompt').data;
   assert.equal(prompt.targetRole, 'werewolf');
   assert.equal(prompt.centerCount, 3);
@@ -56,7 +56,7 @@ for (const [index, expected] of ['예언자', '주정뱅이', '무두장이'].en
     const f = fixture();
     f.applyNightAction(f.room, 'p0', { centerIndex: index });
     assert.deepEqual(results(f.messages[0]).map(m => m.data), [
-      { title: `중앙 카드 ${index + 1} 확인`, roles: [expected] },
+      { title: `중앙 카드 ${index + 1} 확인`, roles: [expected], table: { revealed: [{playerId:'p0',role:'werewolf',awakening:true},{centerIndex:index,role:["seer","drunk","tanner"][index]}] } },
     ]);
     assert.ok(f.messages.slice(1).every(m => results(m).length === 0));
     assert.equal(f.room.actionPrompt, null);

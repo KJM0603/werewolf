@@ -56,6 +56,22 @@ try {
   await wait(() => clients.every(c => c.room.phase === 'voting'));
   assert.ok(clients.every(c => c.room.discussionSkip.votes.length === 2));
   console.log('PASS: 3 real clients; nonhost consent, deduplication, withdrawal, synchronized 2/3 majority transition.');
+  const code=host.room.code,ids=clients.map(c=>c.id);
+  clients.forEach((c,i)=>c.send('vote:cast',{targetId:clients[(i+1)%3].id}));
+  await wait(()=>clients.every(c=>c.room.phase==='result'),10000);
+  clients[1].send('game:restart');
+  await wait(()=>clients[1].events.some(e=>e.event==='error'&&e.data.message.includes('방장만')));
+  assert.ok(clients.every(c=>c.room.phase==='result'));
+  host.send('game:restart');
+  await wait(()=>clients.every(c=>c.room.phase==='lobby'));
+  assert.ok(clients.every(c=>c.room.code===code&&c.room.result===null&&c.room.votesSubmitted===0));
+  assert.deepEqual(host.room.players.map(p=>p.id),ids);
+  assert.ok(host.room.players.every(p=>!p.ready));
+  clients[1].send('player:ready',{ready:true});clients[2].send('player:ready',{ready:true});
+  await wait(()=>host.room.players.filter(p=>p.ready).length===2);
+  host.send('game:start');await wait(()=>clients.every(c=>c.room.phase==='role_reveal'));
+  assert.ok(clients.every(c=>c.room.code===code&&c.events.filter(e=>e.event==='role:private').length===2));
+  console.log('PASS: completed round, rejected nonhost restart, same room and players, readiness reset, fresh roles for second round.');
 } finally {
   for (const c of clients) c.ws.close();
   server.kill();

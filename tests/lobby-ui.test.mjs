@@ -18,12 +18,13 @@ function fixture() {
     document:{querySelector:selector=>selector==='#leave-lobby'?button:null},
     localStorage:{getItem:key=>storage.get(key)||null,removeItem:key=>storage.delete(key)},
     location:{protocol:'http:',host:'localhost'},WebSocket:Socket,
-    setTimeout:callback=>timers.push(callback),clearTimeout(){},
+    setTimeout:callback=>{timers.push(callback);return callback;},
+    clearTimeout:timer=>{const index=timers.indexOf(timer);if(index>=0)timers.splice(index,1);},
     MediaStream:class {constructor(tracks){this.tracks=tracks;}}
   });
   vm.runInContext(`${source}
     render=()=>{};notify=()=>{};
-    globalThis.api={state,connect,leaveLobby,handleMessage};`,context);
+    globalThis.api={state,connect,leaveLobby:leaveRoom,restartGame,resultActions,handleMessage};`,context);
   const api=context.api;
   api.connect();api.state.room={code:'OLD',phase:'lobby'};
   api.state.playerId='p0';api.state.sessionToken='secret';
@@ -57,5 +58,32 @@ test('disconnected leave returns home and stale reconnect timers or messages can
 });
 test('connection loss while leaving returns home without automatically rejoining',()=>{
   const f=fixture();f.leaveLobby();f.sockets[0].close();
+  assert.equal(f.state.room,null);assert.equal(f.storage.size,0);assert.equal(f.timers.length,0);
+});
+test('result exit uses server acknowledgement and cannot leave while a round is active',()=>{
+  const f=fixture();f.state.room.phase='night';f.leaveLobby();assert.equal(f.sockets[0].sent.length,0);
+  f.state.room.phase='result';f.leaveLobby();assert.equal(f.sockets[0].sent[0].event,'room:leave');
+  f.handleMessage('room:left',{});assert.equal(f.state.room,null);assert.equal(f.storage.size,0);
+});
+test('silent restart response releases loading after timeout and permits retry',()=>{
+  const f=fixture();f.state.room={phase:'result',hostId:'p0'};
+  f.restartGame();f.restartGame();assert.equal(f.sockets[0].sent.length,1);
+  assert.match(f.resultActions(),/id="restart-game" disabled/);
+  assert.doesNotMatch(f.resultActions(),/id="leave-room" disabled/);
+  f.timers.shift()();
+  assert.doesNotMatch(f.resultActions(),/id="restart-game" disabled/);
+  f.restartGame();assert.equal(f.sockets[0].sent.length,2);
+});
+test('main exit can interrupt a pending restart and no reply still returns home',()=>{
+  const f=fixture();f.state.room={phase:'result',hostId:'p0'};
+  f.restartGame();f.leaveLobby();
+  assert.deepEqual(f.sockets[0].sent.map(m=>m.event),['game:restart','room:leave']);
+  assert.equal(f.timers.length,1);
+  f.timers.shift()();assert.equal(f.state.room,null);assert.equal(f.storage.size,0);
+  assert.equal(f.state.ws,null);assert.equal(f.timers.length,0);
+});
+test('server rejecting a stale membership still permits local exit and clears its timeout',()=>{
+  const f=fixture();f.state.room.phase='result';
+  f.leaveLobby();f.handleMessage('error',{message:'먼저 방에 입장해 주세요.'});
   assert.equal(f.state.room,null);assert.equal(f.storage.size,0);assert.equal(f.timers.length,0);
 });
