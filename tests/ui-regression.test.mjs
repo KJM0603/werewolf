@@ -68,6 +68,39 @@ test('failed human vote send retains hunter target and never reports success',()
   assert.equal(f.state.selectedTarget,null);assert.match(notices[0],/전송/);
 });
 
+test('other votes update only the count and preserve the mounted ballot, selection and chat',()=>{
+  const handlers={},sent=[];
+  const makeChoice=id=>({dataset:{vote:id},classList:{toggle(key,on){this[key]=on;}},setAttribute(key,value){this[key]=value;},addEventListener:(_,fn)=>handlers[id]=fn});
+  const choices=[makeChoice('p1'),makeChoice('p2')],submit={addEventListener:(_,fn)=>handlers.submit=fn};
+  const count={textContent:''},input={value:'작성 중인 메시지',selectionStart:4,addEventListener(){}},box={scrollTop:124};
+  const document={activeElement:input,querySelector:key=>({'#submit-vote':submit,'#vote-submissions':count,'#chat-input':input,'#chat-box':box}[key]||null),querySelectorAll:key=>key==='[data-vote]'?choices:[]};
+  const f=ui(document);
+  vm.runInContext('saveSession=()=>{};syncPeers=()=>{};syncMediaToPhase=()=>{};notify=()=>{};render=()=>{throw Error("Ballot must stay mounted");};',f.context);
+  f.state.playerId='p0';f.state.room={code:'STABLE',phase:'voting',players:['p0','p1','p2'].map(id=>({id})),chat:[],votesSubmitted:0};
+  f.state.ws={readyState:1,send:raw=>sent.push(JSON.parse(raw))};f.bindGameEvents();
+  handlers.p1();assert.equal(choices[0]['aria-pressed'],'true');assert.equal(submit.disabled,false);
+  for(const votesSubmitted of [1,2]){
+    f.handleMessage('room:state',{...f.state.room,votesSubmitted});
+    assert.equal(count.textContent,`투표 제출 ${votesSubmitted}/3`);assert.equal(f.state.selectedTarget,'p1');
+    assert.equal(choices[0].classList.selected,true);assert.equal(submit.disabled,false);
+    assert.equal(input.value,'작성 중인 메시지');assert.equal(input.selectionStart,4);assert.equal(box.scrollTop,124);assert.equal(document.activeElement,input);
+  }
+  handlers.p2();assert.equal(choices[0]['aria-pressed'],'false');assert.equal(choices[1]['aria-pressed'],'true');
+  handlers.submit();assert.equal(sent[0].data.targetId,'p2');assert.equal(submit.disabled,true);
+  f.handleMessage('room:state',{...f.state.room,votesSubmitted:3});assert.equal(submit.disabled,true);
+  let renders=0;f.context.recordRender=()=>renders++;vm.runInContext('render=recordRender;',f.context);
+  f.handleMessage('game:phase',{...f.state.room,phase:'vote_reveal'});assert.equal(renders,1);
+});
+
+test('voting roster, timer and host changes still refresh the full room',()=>{
+  const f=ui({querySelector:key=>key==='#vote-submissions'?{}:null});let renders=0;
+  f.context.recordRender=()=>renders++;
+  vm.runInContext('saveSession=()=>{};syncPeers=()=>{};syncMediaToPhase=()=>{};notify=()=>{};render=recordRender;',f.context);
+  f.state.room={code:'STABLE',phase:'voting',hostId:'p0',players:[{id:'p0',connected:true}],votesSubmitted:0,timerEndsAt:100};
+  for(const patch of [{hostId:'p1'},{timerEndsAt:200},{players:[{id:'p0',connected:false}]}])f.handleMessage('room:state',{...f.state.room,...patch});
+  assert.equal(renders,3);
+});
+
 test('hunter role guide is private and result shows automatic target or missing vote',()=>{
   const f=ui();f.state.privateRole='hunter';f.state.privateVisible=true;
   assert.match(f.roleCard(),/투표한 대상도 자동으로 사망/);

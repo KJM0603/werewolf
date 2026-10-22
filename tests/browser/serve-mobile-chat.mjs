@@ -7,7 +7,7 @@ const controls=`<!doctype html><meta charset="utf-8"><title>모바일 채팅 검
 <label>너비 <select id="width"><option>390</option><option>320</option><option>360</option><option>760</option><option>1200</option></select></label>
 <label>키보드 <select id="keyboard"><option value="700">닫힘</option><option value="320">열림 320px</option><option value="260">열림 260px</option><option value="220">열림 220px</option></select></label>
 <label>화면 밀림 <select id="pan"><option>0</option><option>64</option></select></label>
-<button id="apply">화면 적용</button><button id="check">배치 확인</button><button id="matrix">전체 배치 검사</button><output id="report" style="max-height:160px;overflow:auto"></output><iframe title="모바일 게임" id="phone" style="width:390px;height:700px"></iframe>
+<button id="apply">화면 적용</button><button id="check">배치 확인</button><button id="matrix">전체 배치 검사</button><button id="votes">투표 화면 고정 검사</button><output id="report" style="max-height:160px;overflow:auto"></output><iframe title="모바일 게임" id="phone" style="width:390px;height:700px"></iframe>
 <script>
 const phone=document.querySelector('#phone'),report=document.querySelector('#report');
 function apply(){phone.style.width=document.querySelector('#width').value+'px';phone.src='/frame?phase='+document.querySelector('#phase').value+'&height='+document.querySelector('#keyboard').value+'&pan='+document.querySelector('#pan').value;}
@@ -21,6 +21,20 @@ function measure(){
 }
 document.querySelector('#apply').onclick=apply;
 document.querySelector('#check').onclick=()=>report.textContent=JSON.stringify(measure(),null,2);
+document.querySelector('#votes').onclick=async()=>{
+ phone.style.width=document.querySelector('#width').value+'px';
+ await new Promise(resolve=>{phone.onload=()=>setTimeout(resolve,50);phone.src='/frame?phase=voting&height=700&pan=0&stability=1';});
+ const w=phone.contentWindow,d=w.document,ballot=d.querySelector('[data-vote]'),submit=d.querySelector('#submit-vote'),chat=d.querySelector('#chat-input');
+ ballot.click();w.scrollTo(0,Math.max(0,ballot.getBoundingClientRect().top+w.scrollY-120));
+ const startY=w.scrollY,startTop=ballot.getBoundingClientRect().top;let sameNodes=true,maxShift=0;
+ for(let i=1;i<=8;i++){
+  w.fixtureVoteCount(i);sameNodes&&=d.querySelector('[data-vote]')===ballot&&d.querySelector('#submit-vote')===submit&&d.querySelector('#chat-input')===chat;
+  maxShift=Math.max(maxShift,Math.abs(w.scrollY-startY),Math.abs(ballot.getBoundingClientRect().top-startTop));
+ }
+ const selected=ballot.getAttribute('aria-pressed')==='true',count=d.querySelector('#vote-submissions').textContent;
+ submit.click();
+ report.textContent=JSON.stringify({width:w.innerWidth,updates:8,sameNodes,maxShift,selected,count,sentTarget:w.fixtureSentVote,pass:sameNodes&&maxShift===0&&selected&&Boolean(w.fixtureSentVote)},null,2);
+};
 document.querySelector('#matrix').onclick=async()=>{
  const rows=[];
  for(const phase of ['lobby','discussion','voting'])for(const width of [320,360,390])for(const height of [220,260,320])for(const pan of [0,64]){
@@ -36,12 +50,14 @@ Object.defineProperty(window,'visualViewport',{value:fixtureViewport});`;
 const actions=`
 checkConnection=()=>{}; // The fixture has no signaling server or device permissions.
 const phase=params.get('phase')||'lobby';state.playerId='me';state.privateRole='seer';
-const players=['me','a','b'].map((id,i)=>({id,name:['달빛','고요한밤','별하늘'][i],connected:true,ready:true}));
+const ids=params.has('stability')?['me','a','b','c','d','e','f','g','h','i']:['me','a','b'];
+const players=ids.map((id,i)=>({id,name:['달빛','고요한밤','별하늘'][i]||'참가자 '+(i+1),connected:true,ready:true}));
 state.chat=Array.from({length:18},(_,i)=>({id:'m'+i,playerId:players[i%3].id,name:players[i%3].name,text:'의견 '+(i+1)+' · 저는 예언자입니다.'}));
-state.room={phase,code:'CHAT01',hostId:'me',players,roles:['werewolf','seer','robber','troublemaker','drunk','insomniac'],roleTarget:6,chat:state.chat,extensionUsed:[],pauseAvailable:true,timerEndsAt:Date.now()+600000,discussionSkip:{votes:[],eligibleCount:3,required:2}};
-send=(event,data)=>{if(event==='chat:send')handleMessage('chat:message',{playerId:'me',name:'달빛',text:data.text});return true;};
+state.room={phase,code:'CHAT01',hostId:'me',players,roles:['werewolf','seer','robber','troublemaker','drunk','insomniac'],roleTarget:6,chat:state.chat,votesSubmitted:0,extensionUsed:[],pauseAvailable:true,timerEndsAt:Date.now()+600000,discussionSkip:{votes:[],eligibleCount:3,required:2}};
+send=(event,data)=>{if(event==='chat:send')handleMessage('chat:message',{playerId:'me',name:'달빛',text:data.text});if(event==='vote:cast')window.fixtureSentVote=data.targetId;return true;};
+window.fixtureVoteCount=count=>handleMessage('room:state',{...state.room,votesSubmitted:count});
 render();if(phase==='discussion')toggleMobileDiscussion();
-document.querySelector('#chat-input').focus();fixtureViewport.dispatchEvent(new Event('resize'));
+if(!params.has('stability'))document.querySelector('#chat-input').focus();fixtureViewport.dispatchEvent(new Event('resize'));
 `;
 createServer((req,res)=>{
  const url=new URL(req.url,'http://localhost');let body,type='text/html';

@@ -231,6 +231,7 @@ function handleMessage(event,data) {
   if(event==='error'){clearRoomRequestTimer();leavingRoom=false;restartingRoom=false;nightActionPending=false;state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
   if(event==='room:joined') { reconnectAttempt=0;clearRoomRequestTimer();restartingRoom=false;resetMobileDiscussion();nightActionPending=false;nightTableFeedback=null;state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncMediaToPhase();syncPeers();render();return; }
   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
+    const votingProgressOnly=event==='room:state'&&isVotingProgressUpdate(state.room,data)&&document.querySelector('#vote-submissions');
     const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;if(Array.isArray(data.chat))state.chat=data.chat;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
     if(data.phase==='lobby') {
       clearRoomRequestTimer();
@@ -249,6 +250,7 @@ function handleMessage(event,data) {
     if(previous!==data.phase && data.phase==='discussion')notify('토론을 시작합니다.');
     if(previous!==data.phase && data.phase==='voting')notify('투표해 주세요.');
     syncMediaToPhase();
+    if(votingProgressOnly){updateVotingControls();return;}
     render();return;
   }
   if(event==='role:private'){state.privateRole=data.role;state.privateVisible=true;render();return;}
@@ -583,6 +585,28 @@ function discussionSkipMarkup(room) {
 function discussionSkipLabel(agreed) {
   return isMobileDiscussion()?(agreed?'동의 취소':'종료 동의'):(agreed?'토론 종료 동의 취소':'토론 종료 동의');
 }
+
+function isVotingProgressUpdate(previous,next) {
+  if(previous?.phase!=='voting'||next.phase!=='voting')return false;
+  // Keep the mounted ballot when only the public submission count changes.
+  // Roster, host, timer and phase changes still take the normal render path.
+  const {votesSubmitted:oldCount,...oldRoom}=previous;
+  const {votesSubmitted:newCount,...newRoom}=next;
+  return JSON.stringify(oldRoom)===JSON.stringify(newRoom);
+}
+function updateVotingControls() {
+  const room=state.room;if(room?.phase!=='voting')return;
+  const total=room.players?.length||0;
+  const count=document.querySelector('#vote-submissions');
+  if(count)count.textContent=`투표 제출 ${room.votesSubmitted}/${total}`;
+  for(const button of document.querySelectorAll('[data-vote]')){
+    const selected=button.dataset.vote===state.selectedTarget;
+    button.classList.toggle('selected',selected);
+    button.setAttribute('aria-pressed',String(selected));
+  }
+  const submit=document.querySelector('#submit-vote');
+  if(submit)submit.disabled=!state.selectedTarget||room.votesSubmitted>=total;
+}
 function updateDiscussionSkipControls() {
   const button = document.querySelector('#discussion-skip-vote');
   const count = document.querySelector('#discussion-skip-count');
@@ -607,7 +631,7 @@ function gameView() {
   let content='';
   if(phase==='role_reveal')content=`<div class="section-kicker">YOUR ROLE</div><h2 class="section-title">내 역할을 확인하세요</h2><p class="section-copy">카드를 확인한 뒤 화면을 가려 주세요. 밤이 곧 시작됩니다.</p>${timerMarkup()}${roleCard()}<div class="center-cards">중앙 카드 3장은 게임 종료 전까지 공개되지 않습니다.</div>`;
   else if(phase==='night')content=nightPanel();
-  else if(phase==='voting')content=`<div class="section-kicker">SECRET VOTE</div><h2 class="section-title">누구를 지목할까요?</h2><p class="section-copy">투표는 모두 제출할 때까지 비공개입니다. 2표 이상 받은 사람 중 최다 득표자만 사망합니다. 최다 득표가 동점이면 그 동점자들만 모두 사망하고, 전원이 1표 이하이면 아무도 사망하지 않습니다. 늑대가 없다고 합의했다면 서로 다른 사람을 지목해 투표를 피할 수 있습니다.${hunterRule}</p>${timerMarkup()}<div class="choice-grid">${room.players.filter(p=>p.id!==state.playerId).map(p=>`<button class="choice ${state.selectedTarget===p.id?'selected':''}" data-vote="${p.id}">${esc(p.name)}</button>`).join('')}</div><div class="room-actions"><button class="btn" id="submit-vote" ${!state.selectedTarget||room.votesSubmitted&&room.votesSubmitted>=room.players.length?'disabled':''}>비밀 투표 제출</button></div><div class="submissions">투표 제출 ${room.votesSubmitted}/${room.players.length}</div>`;
+  else if(phase==='voting')content=`<div class="section-kicker">SECRET VOTE</div><h2 class="section-title">누구를 지목할까요?</h2><p class="section-copy">투표는 모두 제출할 때까지 비공개입니다. 2표 이상 받은 사람 중 최다 득표자만 사망합니다. 최다 득표가 동점이면 그 동점자들만 모두 사망하고, 전원이 1표 이하이면 아무도 사망하지 않습니다. 늑대가 없다고 합의했다면 서로 다른 사람을 지목해 투표를 피할 수 있습니다.${hunterRule}</p>${timerMarkup()}<div class="choice-grid">${room.players.filter(p=>p.id!==state.playerId).map(p=>`<button class="choice ${state.selectedTarget===p.id?'selected':''}" data-vote="${p.id}" aria-pressed="${state.selectedTarget===p.id}">${esc(p.name)}</button>`).join('')}</div><div class="room-actions"><button class="btn" id="submit-vote" ${!state.selectedTarget||room.votesSubmitted&&room.votesSubmitted>=room.players.length?'disabled':''}>비밀 투표 제출</button></div><div class="submissions" id="vote-submissions" role="status" aria-live="polite">투표 제출 ${room.votesSubmitted}/${room.players.length}</div>`;
   else if(phase==='vote_reveal')content=`<div class="section-kicker">VOTE COMPLETE</div><h2 class="section-title">5초 뒤 결과를 공개합니다</h2><p class="section-copy">${esc(room.voteRevealReason||'잠시 후 결과를 공개합니다.')}</p>${timerMarkup()}`;
   else if(phase==='paused')content=`<div class="section-kicker">PAUSED BY HOST</div><h2 class="section-title">모두 잠시 멈췄습니다</h2><p class="section-copy">타이머와 음성이 멈췄습니다. 준비가 되면 방장이 재개할 수 있습니다.</p><div class="timer">${String(Math.floor(room.remainingMs/60000)).padStart(2,'0')}:${String(Math.floor(room.remainingMs/1000)%60).padStart(2,'0')}</div>${hostView()?'<button class="btn" id="resume-game">게임 재개</button>':''}`;
   else if(phase==='result')content=resultPanel();
@@ -674,8 +698,8 @@ function bindGameEvents() {
   document.querySelectorAll('[data-center]').forEach(btn=>btn.addEventListener('click',()=>selectNightCard('center',Number(btn.dataset.center))));
   document.querySelectorAll('[data-night-player]').forEach(btn=>btn.addEventListener('click',()=>selectNightCard('player',btn.dataset.nightPlayer)));
   document.querySelector('#submit-night')?.addEventListener('click',submitNight);
-  document.querySelectorAll('[data-vote]').forEach(btn=>btn.addEventListener('click',()=>{state.selectedTarget=btn.dataset.vote;render();}));
-  document.querySelector('#submit-vote')?.addEventListener('click',()=>{if(!send('vote:cast',{targetId:state.selectedTarget}))return;state.selectedTarget=null;notify('투표를 전송했습니다.');render();});
+  document.querySelectorAll('[data-vote]').forEach(btn=>btn.addEventListener('click',()=>{state.selectedTarget=btn.dataset.vote;updateVotingControls();}));
+  document.querySelector('#submit-vote')?.addEventListener('click',()=>{if(!send('vote:cast',{targetId:state.selectedTarget}))return;state.selectedTarget=null;notify('투표를 전송했습니다.');updateVotingControls();});
   document.querySelector('#leave-room')?.addEventListener('click',leaveRoom);
   document.querySelector('#home-button')?.addEventListener('click',leaveRoom);
   document.querySelector('#restart-game')?.addEventListener('click',restartGame);
