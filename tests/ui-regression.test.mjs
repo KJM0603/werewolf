@@ -146,7 +146,7 @@ test('result distinguishes surviving losers from vote and hunter deaths',()=>{
 });
 test('failed chat send preserves the unsent draft',()=>{
   let submit;
-  const input={value:'재전송할 내용',focus(){}};
+  const input={value:'재전송할 내용',focus(){},addEventListener(){}};
   const form={addEventListener(event,callback){submit=callback;}};
   const f=ui({querySelector:selector=>selector==='#chat-form'?form:selector==='#chat-input'?input:null,querySelectorAll:()=>[]});
   vm.runInContext('send=()=>false;',f.context);f.state.room={phase:'discussion'};
@@ -158,7 +158,7 @@ test('chat resizing updates layout without rerendering, losing drafts, or moving
   let resize;const styles=[];
   const slider={addEventListener(event,callback){resize=callback;}};
   const box={scrollHeight:1600,scrollTop:240,clientHeight:200};
-  const input={value:'작성 중입니다',selectionStart:3};
+  const input={value:'작성 중입니다',selectionStart:3,addEventListener(){}};
   const panel={style:{setProperty:(key,value)=>styles.push([key,value])}};
   const nodes={'#chat-height':slider,'#chat-box':box,'#chat-input':input,'.chat-panel':panel,'.discussion-dock':panel};
   const f=ui({querySelector:selector=>nodes[selector]||null});
@@ -264,6 +264,34 @@ test('mobile keyboard viewport changes resize the shell without replacing draft 
   assert.equal(f.shell.style.values['--discussion-viewport-top'],'24px');
   assert.equal(f.shell.dataset.mobileView,'chat');
   assert.equal(f.input.value,'작성 중인 의견');assert.equal(f.video.srcObject.id,'ongoing-stream');
+});
+
+test('lobby and voting chat follow the visible keyboard viewport and release on blur or desktop',()=>{
+  const handlers={},classes=new Set(),properties={};
+  const input={id:'chat-input',value:'작성 중인 한글',selectionStart:5,addEventListener:(event,fn)=>handlers[event]=fn};
+  const panel={style:{setProperty:(key,value)=>properties[key]=value},classList:{toggle:(key,on)=>on?classes.add(key):classes.delete(key)}};
+  const box={scrollHeight:900,scrollTop:800,clientHeight:100};
+  const document={activeElement:input,querySelector:selector=>({'#chat-input':input,'.chat-panel':panel,'#chat-box':box}[selector]||null)};
+  const f=ui(document);f.context.matchMedia=()=>({matches:true});
+  f.context.visualViewport={height:260,offsetTop:64};
+  f.bindChatEvents();
+  for(const phase of ['lobby','voting']){
+    f.state.room={phase};handlers.focus();
+    assert.equal(classes.has('mobile-chat-focused'),true);
+    assert.equal(properties['--chat-viewport-height'],'260px');assert.equal(properties['--chat-viewport-top'],'64px');
+    assert.equal(input.value,'작성 중인 한글');assert.equal(input.selectionStart,5);
+    document.activeElement=null;handlers.blur();assert.equal(classes.has('mobile-chat-focused'),false);document.activeElement=input;
+  }
+  f.context.matchMedia=()=>({matches:false});handlers.focus();assert.equal(classes.has('mobile-chat-focused'),false);
+});
+
+test('tapping Send retains input focus and a failed transport retains the draft',()=>{
+  const handlers={};let focused=0;
+  const input={value:'보낼 내용',focus(){focused++;},addEventListener(){}};
+  const nodes={'#chat-input':input,'#chat-form':{addEventListener:(_,fn)=>handlers.submit=fn},'#chat-form button':{addEventListener:(_,fn)=>handlers.pointerdown=fn}};
+  const f=ui({querySelector:key=>nodes[key]||null});vm.runInContext('send=()=>false;',f.context);
+  f.bindChatEvents();let prevented=false;handlers.pointerdown({preventDefault(){prevented=true;}});
+  handlers.submit({preventDefault(){}});assert.equal(prevented,true);assert.equal(focused,1);assert.equal(input.value,'보낼 내용');
 });
 
 test('desktop ignores mobile switch and mobile chat closes when voting begins',()=>{

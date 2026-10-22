@@ -117,6 +117,7 @@ function toggleMobileDiscussion() {
   }
 }
 function syncDiscussionViewport() {
+  syncChatViewport();
   const shell=document.querySelector('.discussion-shell');
   if(!shell)return;
   const box=document.querySelector('#chat-box');
@@ -128,6 +129,20 @@ function syncDiscussionViewport() {
   }
   if(!isMobileDiscussion())mobileChatUnread=0;
   updateMobileDiscussionControls();
+  if(follow)scrollChat();
+}
+
+function syncChatViewport() {
+  const panel=document.querySelector('.chat-panel');
+  if(!panel)return;
+  const focused=isMobileDiscussion()&&document.activeElement?.id==='chat-input';
+  const box=document.querySelector('#chat-box');
+  const follow=box&&box.scrollHeight-box.scrollTop-box.clientHeight<48;
+  // Visual viewport excludes the software keyboard, including browsers which pan the page.
+  const viewport=globalThis.visualViewport;
+  panel.style.setProperty('--chat-viewport-height',`${viewport?.height??globalThis.innerHeight}px`);
+  panel.style.setProperty('--chat-viewport-top',`${viewport?.offsetTop??0}px`);
+  panel.classList.toggle('mobile-chat-focused',focused&&state.room?.phase!=='discussion');
   if(follow)scrollChat();
 }
 
@@ -491,7 +506,12 @@ function chatPanel() {
 }
 
 function bindChatEvents() {
-  document.querySelector('#chat-form')?.addEventListener('submit',(e)=>{e.preventDefault();const input=document.querySelector('#chat-input');const text=input.value.trim();if(text&&send('chat:send',{text}))input.value='';input.focus();});
+  const input=document.querySelector('#chat-input');
+  input?.addEventListener('focus',()=>{syncDiscussionViewport();scrollChat();});
+  input?.addEventListener('blur',syncDiscussionViewport);
+  // Keep the keyboard and Korean composition focus while tapping Send.
+  document.querySelector('#chat-form button')?.addEventListener('pointerdown',e=>e.preventDefault());
+  document.querySelector('#chat-form')?.addEventListener('submit',(e)=>{e.preventDefault();const input=document.querySelector('#chat-input');const text=input.value.trim();if(text&&send('chat:send',{text}))input.value='';input.focus({preventScroll:true});});
   document.querySelector('#chat-height')?.addEventListener('input',(e)=>{
     const height=Number(e.target.value);if(!Number.isFinite(height))return;
     chatHeight=Math.max(180,Math.min(600,height));
@@ -550,14 +570,18 @@ function resultPanel() {
 function discussionView(room) {
   const hasExtension=!(room.extensionUsed||[]).includes(state.playerId);
   const seconds=Math.ceil(Math.max(0,(room.timerEndsAt||state.timerNow)-state.timerNow)/1000);
-  app.innerHTML=`<div class="game-shell discussion-shell" data-mobile-view="${mobileDiscussionView}"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions"><button type="button" class="btn ghost mobile-chat-toggle" id="mobile-chat-toggle" aria-controls="discussion-chat" aria-pressed="false">채팅</button>${discussionSkipMarkup(room)}<button type="button" class="btn ghost small" id="retry-media">미디어 연결 재시도</button>${rtcError?`<span class="discussion-connection-error" role="status">${esc(rtcError)}</span>`:''}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock" style="--chat-height:${chatHeight}px"><div class="discussion-chat" id="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button type="button" class="btn ghost ${playbackBlocked?'':'hidden'}" id="play-remote-audio">상대 소리 재생</button><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
+  const moreActions=`<details class="discussion-more"><summary class="btn ghost small" aria-label="토론 더보기">더보기</summary><div class="discussion-more-menu"><button type="button" class="btn ghost small" id="retry-media">미디어 연결 재시도</button>${rtcError?`<span class="discussion-connection-error" role="status">${esc(rtcError)}</span>`:''}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></details>`;
+  app.innerHTML=`<div class="game-shell discussion-shell" data-mobile-view="${mobileDiscussionView}"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions"><button type="button" class="btn ghost mobile-chat-toggle" id="mobile-chat-toggle" aria-controls="discussion-chat" aria-pressed="false">채팅</button>${discussionSkipMarkup(room)}${moreActions}</div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock" style="--chat-height:${chatHeight}px"><div class="discussion-chat" id="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button type="button" class="btn ghost ${playbackBlocked?'':'hidden'}" id="play-remote-audio">상대 소리 재생</button><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
   bindGameEvents();bindAudio();bindVideo();bindMediaElements();scrollChat();syncDiscussionViewport();
 }
 
 function discussionSkipMarkup(room) {
   const progress = room.discussionSkip || { votes: [], eligibleCount: 0, required: 1 };
   const agreed = progress.votes.includes(state.playerId);
-  return `<div class="discussion-skip"><button class="btn ghost small" id="discussion-skip-vote" aria-pressed="${agreed}">${agreed?'토론 종료 동의 취소':'토론 종료 동의'}</button><small id="discussion-skip-count" role="status" aria-live="polite">동의 ${progress.votes.length}/${progress.eligibleCount}명 · ${progress.required}명 필요</small></div>`;
+  return `<div class="discussion-skip"><button class="btn ghost small" id="discussion-skip-vote" aria-pressed="${agreed}" aria-describedby="discussion-skip-count">${discussionSkipLabel(agreed)}</button><small id="discussion-skip-count" role="status" aria-live="polite">동의 ${progress.votes.length}/${progress.eligibleCount}명 · ${progress.required}명 필요</small></div>`;
+}
+function discussionSkipLabel(agreed) {
+  return isMobileDiscussion()?(agreed?'동의 취소':'종료 동의'):(agreed?'토론 종료 동의 취소':'토론 종료 동의');
 }
 function updateDiscussionSkipControls() {
   const button = document.querySelector('#discussion-skip-vote');
@@ -567,7 +591,7 @@ function updateDiscussionSkipControls() {
   const agreed = progress.votes.includes(state.playerId);
   button.disabled = false;
   button.setAttribute('aria-pressed', String(agreed));
-  button.textContent = agreed ? '토론 종료 동의 취소' : '토론 종료 동의';
+  button.textContent = discussionSkipLabel(agreed);
   count.textContent = `동의 ${progress.votes.length}/${progress.eligibleCount}명 · ${progress.required}명 필요`;
 }
 
@@ -610,6 +634,7 @@ function render() {
   const nightMemory=document.querySelector('.night-memory');if(nightMemory&&nightMemoryOpen)nightMemory.open=true;
   const box=document.querySelector('#chat-box');
   if(box){if(oldBox&&!follow)box.scrollTop=oldScroll;else scrollChat();}
+  syncDiscussionViewport();
 }
 function bindRoomEvents() {
   document.querySelector('#leave-lobby')?.addEventListener('click',leaveRoom);

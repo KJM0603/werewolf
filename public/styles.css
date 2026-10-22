@@ -275,6 +275,13 @@ body:has(.discussion-shell) { overflow:hidden; }
 .discussion-chat .chat-form { margin-top:6px; }
 .discussion-tools { display:flex; flex-direction:column; justify-content:center; gap:7px; min-width:0; }
 .discussion-connection-error { flex-basis:100%; color:#f1d5a3; font-size:13px; }
+.discussion-more { position:relative; flex-shrink:0; }
+.discussion-more summary { list-style:none; display:flex; align-items:center; justify-content:center; min-height:44px; cursor:pointer; white-space:nowrap; }
+.discussion-more summary::-webkit-details-marker { display:none; }
+.discussion-more summary:focus-visible { outline:2px solid #c6adff; outline-offset:2px; }
+.discussion-more-menu { position:absolute; top:calc(100% + 6px); right:0; z-index:15; width:220px; padding:10px; border:1px solid #51465f; border-radius:12px; background:#211d2b; box-shadow:0 12px 32px #0008; }
+.discussion-more-menu > * { width:100%; margin-bottom:8px; }
+.discussion-more-menu > :last-child { margin-bottom:0; }
 .discussion-tools .btn { width:100%; padding:10px 12px; }
 .discussion-tools small { color:#918d9b; font-size:10px; text-align:center; }
 .result-splash { min-height:460px; height:100%; display:grid; align-content:center; justify-items:center; text-align:center; animation:result-splash-fade 3s ease both; }
@@ -297,16 +304,19 @@ body:has(.discussion-shell) { overflow:hidden; }
   .game-top { align-items:flex-start; }
   .room-code { padding:8px 9px; }
   .discussion-shell { position:fixed; top:var(--discussion-viewport-top,0px); left:0; right:0; height:var(--discussion-viewport-height,100dvh); padding:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left)); gap:7px; }
-  .discussion-topbar { flex:0 0 auto; min-height:62px; gap:8px; grid-template-columns:auto minmax(0,1fr); align-items:center; }
+  .discussion-topbar { flex:0 0 44px; min-height:44px; gap:6px; grid-template-columns:auto minmax(0,1fr); align-items:center; }
   .discussion-topbar .brand { display:none; }
-  .discussion-top-actions { flex-wrap:wrap; gap:6px; }
+  .discussion-top-actions { flex-wrap:nowrap; gap:5px; min-width:0; }
   .discussion-top-actions > .btn { min-height:44px; }
-  .mobile-chat-toggle { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:10px 12px; font-size:14px; white-space:nowrap; }
+  .mobile-chat-toggle { display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:8px; font-size:12px; white-space:nowrap; }
   .mobile-chat-toggle[aria-pressed="true"] { background:#30253f; border-color:#b9a0ff; }
-  .discussion-skip .btn { min-height:44px; font-size:12px; padding:9px 10px; }
-  .discussion-skip small { font-size:10px; }
-  .discussion-clock strong { font-size:22px; }
-  .discussion-top-actions .room-code { display:none; }
+  .discussion-skip { flex-direction:row; }
+  .discussion-skip .btn { min-height:44px; font-size:12px; padding:8px; white-space:nowrap; }
+  .discussion-skip small { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .discussion-clock strong { font-size:20px; }
+  .discussion-clock span { display:none; }
+  .discussion-more summary { padding:8px; }
+  .discussion-top-actions .discussion-more .room-code { display:block; }
   .discussion-video-wrap { overflow:auto; }
   .discussion-video-grid,.discussion-video-grid.players-7,.discussion-video-grid.players-8,.discussion-video-grid.players-9,.discussion-video-grid.players-10 { height:auto; min-height:100%; grid-template-columns:repeat(2,minmax(0,1fr)); grid-auto-rows:minmax(130px,1fr); }
   .discussion-dock { display:block; flex:0 0 auto; min-height:0; }
@@ -316,12 +326,18 @@ body:has(.discussion-shell) { overflow:hidden; }
   .discussion-shell[data-mobile-view="chat"] .discussion-chat { display:block; flex:1; min-width:0; }
   .discussion-shell[data-mobile-view="chat"] .discussion-tools { display:none; }
   .discussion-chat .chat-size { display:none; }
-  .discussion-chat .chat-heading { gap:6px; }
-  .discussion-chat .chat-panel { padding:8px; }
+  .discussion-chat .chat-heading { display:none; }
+  .discussion-chat .chat-panel { padding:6px 8px 4px; }
   .discussion-chat .chat-box { font-size:16px; }
   .discussion-tools { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; }
   .discussion-tools .btn { min-height:44px; font-size:13px; padding:9px 8px; }
   .discussion-tools small { grid-column:1/-1; font-size:11px; }
+  .chat-panel.mobile-chat-focused { position:fixed; z-index:12; left:max(8px,env(safe-area-inset-left)); right:max(8px,env(safe-area-inset-right)); top:calc(var(--chat-viewport-top,0px) + var(--chat-viewport-height,100dvh) - 4px); transform:translateY(-100%); height:min(360px,calc(var(--chat-viewport-height,100dvh) - 8px)); padding:8px; border-color:#51465f; border-radius:14px; }
+  .mobile-chat-focused .chat-size { display:none; }
+  .lobby-chat:has(.mobile-chat-focused) { min-height:var(--chat-height,280px); }
+  body:has(.mobile-chat-focused) { overflow:hidden; }
+  .chat-form .input { min-width:0; min-height:44px; }
+  .chat-form .btn { min-width:44px; min-height:44px; }
 }
 /* Guidance remains visible without preventing chat-only play. */
 .connection-notice{max-width:1120px;margin:12px auto;padding:14px 18px;border:1px solid #716044;border-radius:12px;background:#28231c;color:#f1e6d2;font-size:14px;line-height:1.6}
