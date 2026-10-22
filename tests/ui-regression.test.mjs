@@ -318,11 +318,13 @@ test('insomniac reveal survives the actual info-before-phase message order',()=>
   assert.doesNotMatch(f.nightTable(),/table-card-face/);
 });
 for(const copied of [false,true])test(`insomniac closeup hides its face until own-card click and permits retry (copied=${copied})`,()=>{
+  const nightTurn=copied?'doppelganger-insomniac':'insomniac';
   const f=tableFixture('insomniac',3);f.state.privateRole=copied?'doppelganger':'insomniac';
   f.state.prompt=null;f.state.room.nightTurn='drunk';
-  const prompt={role:copied?'doppelganger-copy':'insomniac',targetRole:'insomniac',players:[],centerCount:0};
+  const prompt={role:copied?'doppelganger-copy':'insomniac',targetRole:'insomniac',nightTurn,players:[],centerCount:0};
   f.handleMessage('night:prompt',prompt);
-  f.handleMessage('room:state',{...f.state.room,nightTurn:'insomniac'});
+  f.handleMessage('room:state',{...f.state.room,nightTurn});
+  if(copied)assert.match(f.nightPanel(),/도플갱어 · 불면증 환자/);
   assert.match(f.nightTable(),/insomniac-seat/);
   assert.doesNotMatch(f.nightTable(),/table-card-face/);
   assert.doesNotMatch(f.nightPanel(),/id="submit-night"|확인한 내 역할:/);
@@ -331,10 +333,11 @@ for(const copied of [false,true])test(`insomniac closeup hides its face until ow
   assert.deepEqual(f.sent[0],{event:'night:action',data:{}});
   assert.doesNotMatch(f.nightTable(),/table-card-face/);
   f.handleMessage('error',{message:'retry'});f.selectNightCard('player','p0');assert.equal(f.sent.length,2);
-  const result={title:'내 카드 확인',currentRole:'werewolf',table:{closeup:true,nightTurn:'insomniac',revealed:[{playerId:'p0',role:'werewolf'}]}};
+  const result={title:'내 카드 확인',currentRole:'werewolf',table:{closeup:true,nightTurn,revealed:[{playerId:'p0',role:'werewolf'}]}};
   f.handleMessage('night:result',result);f.handleMessage('night:turn-ended',{reason:'completed'});
   assert.match(f.nightTable(),/insomniac-seat/);assert.match(f.nightTable(),/내 자리 · 확인 당시 늑대인간/);
   assert.equal(f.state.privateRole,'werewolf');
+  f.handleMessage('room:state',{...f.state.room,nightTurn});assert.match(f.nightTable(),/내 자리 · 확인 당시 늑대인간/);
   f.handleMessage('game:phase',{...f.state.room,phase:'discussion',nightTurn:null});
   assert.doesNotMatch(f.nightTable(),/insomniac-seat|table-card-face/);
   f.handleMessage('night:result',{...result,replay:true});assert.doesNotMatch(f.nightTable(),/insomniac-seat|table-card-face/);

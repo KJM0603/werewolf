@@ -159,7 +159,7 @@ function handleMessage(event,data) {
     if(!['discussion','paused'].includes(data.phase))resetMobileDiscussion();
     // Night prompts are private and may otherwise remain visible after their
     // owner's turn times out. Keep controls only while their role is active.
-    if(data.phase!=='paused'&&(data.phase!=='night'||data.nightTurn!==previousNightTurn&&state.prompt&&(state.prompt.role==='doppelganger-copy'&&data.nightTurn==='doppelganger'?'doppelganger':state.prompt.targetRole||state.prompt.role)!==data.nightTurn))state.prompt=null;
+    if(data.phase!=='paused'&&(data.phase!=='night'||data.nightTurn!==previousNightTurn&&state.prompt&&(state.prompt.nightTurn||(state.prompt.role==='doppelganger-copy'&&data.nightTurn==='doppelganger'?'doppelganger':state.prompt.targetRole||state.prompt.role))!==data.nightTurn))state.prompt=null;
     if(previous==='role_reveal'&&data.phase==='night')state.privateVisible=false;
     if(previous!==data.phase && data.phase==='discussion')notify('토론을 시작합니다.');
     if(previous!==data.phase && data.phase==='voting')notify('투표해 주세요.');
@@ -171,7 +171,7 @@ function handleMessage(event,data) {
     const ownCard=(data.targetRole||data.role)==='insomniac';
     if(ownCard&&(state.prompt?.targetRole||state.prompt?.role)!=='insomniac')insomniacApproachAt=Date.now();
     nightActionPending=false;
-    if(nightTableFeedback?.nightTurn!==(data.targetRole||data.role))nightTableFeedback=null;
+    if(nightTableFeedback?.nightTurn!==(data.nightTurn||data.targetRole||data.role))nightTableFeedback=null;
     state.prompt=data;state.selectedTarget=null;state.selectedSecond=null;state.selectedCenter=[];
     render();
     const reducedMotion=globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -310,7 +310,7 @@ function nightTable() {
 function nightPanel() {
   const prompt=state.prompt;
   const latest=state.privateResults.at(-1);
-  const turn=ROLE_INFO[state.room?.nightTurn]||{name:'밤 행동',emoji:'🌘'};
+  const turn=state.room?.nightTurn==='doppelganger-insomniac'?{name:'도플갱어 · 불면증 환자',emoji:'🌙'}:ROLE_INFO[state.room?.nightTurn]||{name:'밤 행동',emoji:'🌘'};
   const resultRole=latest?.currentRole?ROLE_INFO[latest.currentRole]:null;
   const privateResult=latest?`<div class="night-result" role="status" aria-live="polite"><div class="section-kicker">나만 볼 수 있는 결과</div><div class="night-result-title">${esc(latest.title||'밤 정보')}</div>${resultRole?`<div class="night-result-role"><span>${resultRole.emoji}</span><strong>확인한 내 역할: ${esc(resultRole.name)}</strong></div>`:latest.roles?.length?`<div class="night-result-cards">${latest.roles.map(name=>{const role=Object.values(ROLE_INFO).find(info=>info.name===name);return `<div><span>${role?.emoji||'🎭'}</span><strong>${esc(name)}</strong></div>`;}).join('')}</div>`:''}<div class="night-result-copy">${esc(latest.text||(!latest.roles?.length?'확인할 정보가 없습니다.':''))}</div></div>`:'';
   const spec=nightActionSpec();

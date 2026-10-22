@@ -22,7 +22,9 @@ const CATALOGUE = [
   { id: 'hunter', name: '사냥꾼', emoji: '🏹', max: 1 },
 ];
 const ROLE_NAME = Object.fromEntries(CATALOGUE.map((role) => [role.id, role.name]));
-const NIGHT_ORDER = ['doppelganger', 'werewolf', 'minion', 'mason', 'seer', 'robber', 'troublemaker', 'drunk', 'insomniac'];
+const COPIED_INSOMNIAC = 'doppelganger-insomniac';
+const NIGHT_ORDER = ['doppelganger', 'werewolf', 'minion', 'mason', 'seer', 'robber', 'troublemaker', 'drunk', 'insomniac', COPIED_INSOMNIAC];
+const INSOMNIAC_TURNS = new Set(['insomniac', COPIED_INSOMNIAC]);
 const IMMEDIATE_COPY_ROLES = new Set(['seer', 'robber', 'troublemaker', 'drunk']);
 
 function code() { return randomBytes(3).toString('hex').toUpperCase(); }
@@ -129,7 +131,7 @@ function privateSend(room, playerId, event, data) {
 }
 
 function sendActionPrompt(room) {
-  if (room.phase === 'night' && room.activeRole === 'insomniac') {
+  if (room.phase === 'night' && INSOMNIAC_TURNS.has(room.activeRole)) {
     for (const id of pendingInsomniacs(room)) sendInsomniacPrompt(room, id);
     return;
   }
@@ -148,7 +150,13 @@ function roleForPlayer(room, playerId) {
 }
 
 function playerCard(room, playerId) { return room.cards.find((c) => c.ownerId === playerId); }
-function actorIds(room, role) { return [...room.players.keys()].filter((id) => room.startRoles.get(id) === role || room.startRoles.get(id) === 'doppelganger' && room.copyRoles.get(id) === role && !IMMEDIATE_COPY_ROLES.has(role) && role !== 'minion'); }
+function actorIds(room, role) {
+  return [...room.players.keys()].filter((id) => {
+    const startRole = room.startRoles.get(id);
+    if (role === COPIED_INSOMNIAC) return startRole === 'doppelganger' && room.copyRoles.get(id) === 'insomniac';
+    return startRole === role || startRole === 'doppelganger' && room.copyRoles.get(id) === role && ['werewolf', 'mason'].includes(role);
+  });
+}
 
 function minionInfo(room) {
   const wolves = actorIds(room, 'werewolf');
@@ -156,10 +164,10 @@ function minionInfo(room) {
     table: { revealed: wolves.map(playerId => ({ playerId, role: 'werewolf', awakening: true })) } };
 }
 function pendingInsomniacs(room) {
-  return room.activeRole === 'insomniac' ? actorIds(room, 'insomniac').filter(id => !room.actionDone.has(`insomniac:${id}`)) : [];
+  return INSOMNIAC_TURNS.has(room.activeRole) ? actorIds(room, room.activeRole).filter(id => !room.actionDone.has(`${room.activeRole}:${id}`)) : [];
 }
 function sendInsomniacPrompt(room, id) {
-  privateSend(room, id, 'night:prompt', { role: room.startRoles.get(id) === 'doppelganger' ? 'doppelganger-copy' : 'insomniac', targetRole: 'insomniac', players: [], centerCount: 0 });
+  privateSend(room, id, 'night:prompt', { role: room.startRoles.get(id) === 'doppelganger' ? 'doppelganger-copy' : 'insomniac', targetRole: 'insomniac', nightTurn: room.activeRole, players: [], centerCount: 0 });
 }
 
 function setTimer(room, ms) {
@@ -293,8 +301,8 @@ function beginAction(room, role) {
     }
     setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
-  if (role === 'insomniac') {
-    // Both the original and copied insomniac get the entire shared turn to click.
+  if (INSOMNIAC_TURNS.has(role)) {
+    // The copied insomniac checks only after the original's full turn ends.
     for (const id of room.actionActors) {
       if (room.players.get(id)?.isBot) applyNightAction(room, id, {});
       else sendInsomniacPrompt(room, id);
@@ -320,7 +328,10 @@ function nextAction(room) {
   for (let i = currentRoleIndex + 1; i < NIGHT_ORDER.length; i += 1) {
     const nextRole = NIGHT_ORDER[i];
     // Announce the selected deck, never the secret distribution of its cards.
-    if (room.roles.includes(nextRole)) return beginAction(room, nextRole);
+    const selected = nextRole === COPIED_INSOMNIAC
+      ? room.roles.includes('doppelganger') && room.roles.includes('insomniac')
+      : room.roles.includes(nextRole);
+    if (selected) return beginAction(room, nextRole);
   }
   startDiscussion(room);
 }
@@ -388,9 +399,9 @@ function applyNightAction(room, playerId, data) {
   if (room.phase === 'night' && pendingInsomniacs(room).includes(playerId)) {
     const currentRole = playerCard(room, playerId)?.role;
     privateSend(room, playerId, 'night:result', { title: '내 카드 확인', currentRole,
-      table: { closeup: true, nightTurn: 'insomniac', revealed: [{ playerId, role: currentRole }] },
+      table: { closeup: true, nightTurn: room.activeRole, revealed: [{ playerId, role: currentRole }] },
       text: `현재 역할은 ${ROLE_NAME[currentRole]}입니다.` });
-    room.actionDone.add(`insomniac:${playerId}`);
+    room.actionDone.add(`${room.activeRole}:${playerId}`);
     privateSend(room, playerId, 'night:turn-ended', { reason: 'completed' });
     return;
   }
@@ -416,7 +427,8 @@ function applyNightAction(room, playerId, data) {
     own.copyRole = copied;
     room.copyRoles.set(playerId, copied);
     const nextStep = IMMEDIATE_COPY_ROLES.has(copied) ? '지금 복사한 능력을 한 번 더 수행해 주세요.'
-      : ['werewolf', 'mason', 'insomniac'].includes(copied) ? `${ROLE_NAME[copied]} 차례에 함께 행동합니다.`
+      : ['werewolf', 'mason'].includes(copied) ? `${ROLE_NAME[copied]} 차례에 함께 행동합니다.`
+      : copied === 'insomniac' ? '일반 불면증 환자 차례가 끝난 뒤, 밤의 맨 마지막에 따로 내 카드를 확인합니다.'
       : copied === 'minion' ? '지금 늑대인간 정보를 확인합니다.' : '이 역할은 밤에 추가로 수행할 행동이 없습니다.';
     privateSend(room, playerId, 'night:result', { title: '복사한 역할', currentRole: copied, table: { revealed: [{playerId:data.targetId,role:copied}] }, text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[copied] || copied}입니다. ${nextStep}` });
     if (copied === 'minion') {

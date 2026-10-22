@@ -9,18 +9,29 @@ const port=Number(process.env.NIGHT_TABLE_PORT||4190);
 const source=readFileSync('server.mjs','utf8').split('const server = createServer(')[0].replace(/^import .*;\r?$/gm,'');
 const context=vm.createContext({Buffer,process,join,randomBytes,setTimeout:(fn,ms)=>setTimeout(fn,Math.max(ms,120000)),clearTimeout});
 vm.runInContext(`${source}\nglobalThis.api={rooms,handle,beginNight,applyNightAction,publicRoom,send,privateSend,timerExpired};`,context);
-const api=context.api;let room,ws,messages=[];
+const api=context.api;let room,ws,messages=[],exchange=null;
+function advanceTurn(){
+  if(exchange&&room.activeRole==='troublemaker'&&room.actionPrompt?.playerId===exchange.actor)api.applyNightAction(room,exchange.actor,{targetId:'me',secondTargetId:exchange.target});
+  clearTimeout(room.timer);api.timerExpired(room);
+  room.timerEndsAt=Date.now()+120000;api.send(ws,'room:state',api.publicRoom(room));
+}
 const allowed=['seer','robber','troublemaker','drunk','werewolf','minion','mason','insomniac','doppelganger','villager'];
 function setup(role,count,copy,companion,current){
   if(!allowed.includes(role)||![3,5,8,10].includes(count))throw Error('Invalid fixture');
-  if(room)clearTimeout(room.timer);messages=[];
+  if(room)clearTimeout(room.timer);messages=[];exchange=null;
   ws={room:'TABLE',playerId:'me',socket:{write(frame){const n=frame[1]&127;messages.push(JSON.parse(frame.subarray(n<126?2:n===126?4:10).toString()));},end(){}}};
   const names=['달빛','고요한밤','별하늘','안개숲','새벽','은하수','보름달','산들바람','반딧불','긴이름참가자열여섯글자'];
   const assignments=Array.from({length:count},(_,i)=>[i===0?'me':`p${i}`,names[i],i===0?role:i===1&&role==='doppelganger'?copy:'villager']);
   if(['werewolf','mason'].includes(role)&&companion)assignments[1][2]=role;
   if(role==='minion'&&companion){assignments[1][2]='werewolf';assignments[2][2]='werewolf';}
+  if(role==='doppelganger'&&copy==='minion'&&companion)assignments[2][2]='werewolf';
   if(role==='insomniac'&&['werewolf','seer'].includes(current)){
     assignments[1][2]=current;assignments[2][2]='troublemaker';
+    exchange={actor:'p2',target:'p1'};
+  }
+  if(role==='doppelganger'&&copy==='insomniac'&&count>=5&&['werewolf','seer'].includes(current)){
+    assignments[2][2]=current;assignments[3][2]='troublemaker';
+    exchange={actor:'p3',target:'p2'};
   }
   const players=new Map(assignments.map(([id,name])=>[id,{id,name,token:`fixture-${id}`,connected:true,ready:true,socket:id==='me'?ws:null}]));
   const center=['werewolf','seer','robber'].map((role,i)=>({id:`c${i}`,role,ownerId:null}));
@@ -30,8 +41,7 @@ function setup(role,count,copy,companion,current){
   api.send(ws,'room:joined',{room:api.publicRoom(room),playerId:'me',token:'fixture-me',isHost:true});
   api.privateSend(room,'me','role:private',{role});api.beginNight(room);
   for(let i=0;i<20&&room.phase==='night'&&room.activeRole!==role&&role!=='villager';i++){
-    if(role==='insomniac'&&room.activeRole==='troublemaker'&&room.actionPrompt?.playerId==='p2')api.applyNightAction(room,'p2',{targetId:'me',secondTargetId:'p1'});
-    clearTimeout(room.timer);api.timerExpired(room);
+    advanceTurn();
   }
   room.timerEndsAt=Date.now()+120000;api.send(ws,'room:state',api.publicRoom(room));
 }
@@ -52,7 +62,7 @@ createServer(async(req,res)=>{
     else if(url.pathname==='/app.js'||url.pathname==='/styles.css'){body=readFileSync(join('public',url.pathname.slice(1)),'utf8');type=url.pathname.endsWith('.js')?'text/javascript':'text/css';}
     else if(url.pathname==='/setup'){setup(url.searchParams.get('role'),Number(url.searchParams.get('count')),url.searchParams.get('copy'),url.searchParams.get('companion')==='1',url.searchParams.get('current'));body=JSON.stringify(messages.splice(0));}
     else if(url.pathname==='/action'){let input='';for await(const chunk of req)input+=chunk;const {event,data}=JSON.parse(input);api.handle(ws,event,data);body=JSON.stringify(messages.splice(0));}
-    else if(url.pathname==='/timeout'){clearTimeout(room.timer);api.timerExpired(room);body=JSON.stringify(messages.splice(0));}
+    else if(url.pathname==='/timeout'){advanceTurn();body=JSON.stringify(messages.splice(0));}
     else if(url.pathname==='/events')body=JSON.stringify(messages.splice(0));
     else{res.writeHead(404);res.end();return;}
     res.writeHead(200,{'Content-Type':type+'; charset=utf-8','Cache-Control':'no-store'});res.end(body);

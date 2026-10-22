@@ -73,17 +73,11 @@ for(const [role,data] of [
   f.beginAction(f.room,role);
   assert.ok(!f.room.actionActors.includes('p0'),'Do not repeat the copied ability in the normal role turn');
 });
-for(const role of ['werewolf','mason','insomniac'])test(`copied ${role} receives its information in that role's turn`,()=>{
+for(const role of ['werewolf','mason'])test(`copied ${role} receives its information in that role's turn`,()=>{
   const f=fixture(['doppelganger',role,'villager']);
   f.action('doppelganger','p0',{targetId:'p1'});
   assert.equal(f.room.actionPrompt,null);
   f.beginAction(f.room,role);
-  if(role==='insomniac') {
-    assert.ok(f.messages('p0').some(m=>m.event==='night:prompt'&&m.data.targetRole===role));
-    f.applyNightAction(f.room,'p0',{});
-    assert.equal(results(f,'p0').at(-1).data.currentRole,'doppelganger');
-    return;
-  }
   assert.ok(f.messages('p0').some(m=>m.event==='night:info'&&m.data.role===role));
 });
 for(const role of ['villager','tanner','hunter'])test(`copied ${role} clearly finishes with no extra night action`,()=>{
@@ -329,20 +323,103 @@ test('insomniac learns its exchanged card only after clicking, once and privatel
   assert.equal(f.messages('p1').filter(m=>m.event==='night:result'&&m.data.currentRole).length,0);
 });
 
-test('both insomniacs can independently click, reconnect and resume without early disclosure',()=>{
-  const f=fixture(['insomniac','doppelganger','werewolf']);f.room.copyRoles.set('p1','insomniac');
+test('copied insomniac checks only after the original full turn, then discussion begins',()=>{
+  const f=fixture(['insomniac','doppelganger','werewolf']);
+  f.action('doppelganger','p1',{targetId:'p0'});
+  assert.match(results(f,'p1')[0].data.text,/맨 마지막/);
   f.beginAction(f.room,'insomniac');
-  for(const id of ['p0','p1'])assert.ok(f.messages(id).some(m=>m.event==='night:prompt'));
-  const restored=f.reconnect('p1');
-  assert.ok(restored.some(m=>m.event==='night:prompt'));
-  assert.ok(!restored.some(m=>m.data.currentRole));
-  f.handle(f.room.players.get('p0').socket,'game:pause',{});
-  f.applyNightAction(f.room,'p1',{});assert.equal(results(f,'p1').length,0);
-  f.handle(f.room.players.get('p0').socket,'game:resume',{});
-  assert.equal(f.messages('p0').filter(m=>m.event==='night:prompt').length,2);
+  assert.ok(f.messages('p0').some(m=>m.event==='night:prompt'));
+  assert.ok(!f.messages('p1').some(m=>m.event==='night:prompt'&&m.data.targetRole==='insomniac'));
   f.applyNightAction(f.room,'p1',{});assert.equal(results(f,'p1').length,1);
+  assert.ok(!f.reconnect('p1').some(m=>m.event==='night:prompt'));
+  const deadline=f.room.timerEndsAt;assert.equal(f.room.timer.ms,5000);
   f.applyNightAction(f.room,'p0',{});assert.equal(results(f,'p0').length,1);
-  assert.ok(!f.reconnect('p0').some(m=>m.event==='night:prompt'));
+  assert.equal(f.room.activeRole,'insomniac');assert.equal(f.room.timerEndsAt,deadline);
+  f.timerExpired(f.room);
+  assert.equal(f.room.activeRole,'doppelganger-insomniac');assert.equal(f.room.timer.ms,5000);
+  const prompt=f.messages('p1').find(m=>m.event==='night:prompt'&&m.data.targetRole==='insomniac').data;
+  assert.equal(prompt.role,'doppelganger-copy');assert.equal(prompt.nightTurn,'doppelganger-insomniac');
+  f.applyNightAction(f.room,'p0',{});assert.equal(results(f,'p0').length,1);
+  f.applyNightAction(f.room,'p1',{});assert.equal(results(f,'p1').at(-1).data.currentRole,'doppelganger');
+  assert.equal(results(f,'p1').at(-1).data.table.nightTurn,'doppelganger-insomniac');
+  f.applyNightAction(f.room,'p1',{});assert.equal(results(f,'p1').length,2);
+  f.timerExpired(f.room);assert.equal(f.room.phase,'discussion');
+});
+
+for(const copied of [false,true])test(`insomniac reconnect and pause restore only its own pending turn (copied=${copied})`,()=>{
+  const f=fixture(['insomniac','doppelganger','werewolf']);
+  f.action('doppelganger','p1',{targetId:'p0'});
+  const id=copied?'p1':'p0',other=copied?'p0':'p1';
+  f.beginAction(f.room,'insomniac');if(copied)f.timerExpired(f.room);
+  const restored=f.reconnect(id);
+  assert.ok(restored.some(m=>m.event==='night:prompt'));
+  assert.ok(!restored.some(m=>m.event==='night:result'&&m.data.title==='내 카드 확인'));
+  assert.ok(!f.reconnect(other).some(m=>m.event==='night:prompt'));
+  f.handle(f.room.players.get('p0').socket,'game:pause',{});
+  f.applyNightAction(f.room,id,{});
+  assert.ok(!results(f,id).some(m=>m.data.title==='내 카드 확인'));
+  f.handle(f.room.players.get('p0').socket,'game:resume',{});
+  assert.equal(f.messages(id).filter(m=>m.event==='night:prompt').length,2);
+  f.applyNightAction(f.room,id,{});
+  assert.equal(results(f,id).filter(m=>m.data.title==='내 카드 확인').length,1);
+  assert.ok(!f.reconnect(id).some(m=>m.event==='night:prompt'));
+});
+
+test('copied insomniac timeout and late request never grant the unseen final card',()=>{
+  const f=fixture(['doppelganger','insomniac','werewolf','troublemaker']);
+  f.action('doppelganger','p0',{targetId:'p1'});
+  f.action('troublemaker','p3',{targetId:'p0',secondTargetId:'p2'});
+  f.beginAction(f.room,'insomniac');f.timerExpired(f.room);
+  assert.equal(f.room.activeRole,'doppelganger-insomniac');
+  f.timerExpired(f.room);f.applyNightAction(f.room,'p0',{});
+  assert.ok(!results(f,'p0').some(m=>m.data.title==='내 카드 확인'));
+  assert.ok(f.messages('p0').some(m=>m.event==='night:turn-ended'&&m.data.reason==='timeout'));
+  assert.ok(!f.reconnect('p0').some(m=>m.event==='night:prompt'||m.data.title==='내 카드 확인'));
+});
+
+test('copied insomniac remains the actor after its card moves and sees its final card',()=>{
+  const f=fixture(['doppelganger','insomniac','werewolf','troublemaker']);
+  f.action('doppelganger','p0',{targetId:'p1'});
+  f.action('troublemaker','p3',{targetId:'p0',secondTargetId:'p2'});
+  f.timerExpired(f.room);f.timerExpired(f.room);
+  assert.equal(f.room.activeRole,'doppelganger-insomniac');
+  assert.deepEqual(Array.from(f.room.actionActors),['p0']);
+  f.applyNightAction(f.room,'p2',{});assert.equal(results(f,'p2').length,0);
+  f.applyNightAction(f.room,'p0',{});
+  assert.equal(results(f,'p0').at(-1).data.currentRole,'werewolf');
+  assert.equal(f.roleForPlayer(f.room,'p2'),'insomniac');
+});
+
+test('copied insomniac announcement and duration depend only on the selected deck',()=>{
+  for(const roles of [
+    ['doppelganger','insomniac','werewolf'],
+    ['doppelganger','werewolf','villager'],
+    ['werewolf','villager','villager']
+  ]) {
+    const center=roles.includes('insomniac')?['seer','robber','villager']:roles.includes('doppelganger')?['insomniac','robber','villager']:['insomniac','doppelganger','villager'];
+    const f=fixture(roles,center);f.beginNight(f.room);
+    if(roles[0]==='doppelganger')f.applyNightAction(f.room,'p0',{targetId:'p1'});
+    const turns=[];
+    for(let i=0;i<16&&f.room.phase==='night';i++) {
+      turns.push([f.room.activeRole,f.room.timer.ms]);f.timerExpired(f.room);
+    }
+    assert.deepEqual(turns.slice(-2),[['insomniac',5000],['doppelganger-insomniac',5000]]);
+    assert.equal(f.room.phase,'discussion');
+    assert.equal(f.messages('p0').filter(m=>m.event==='night:prompt'&&m.data.nightTurn==='doppelganger-insomniac').length,roles[1]==='insomniac'?1:0);
+  }
+  for(const roles of [['insomniac','werewolf','villager'],['doppelganger','werewolf','villager']]) {
+    const f=fixture(roles);f.beginNight(f.room);
+    while(f.room.phase==='night') {assert.notEqual(f.room.activeRole,'doppelganger-insomniac');f.timerExpired(f.room);}
+  }
+});
+
+test('bot copied insomniac waits for the final turn and checks exactly once',()=>{
+  const f=fixture(['doppelganger','insomniac','werewolf']);
+  f.action('doppelganger','p0',{targetId:'p1'});f.room.players.get('p0').isBot=true;
+  f.beginAction(f.room,'insomniac');assert.equal(results(f,'p0').length,1);
+  f.timerExpired(f.room);assert.equal(results(f,'p0').length,2);
+  assert.equal(results(f,'p0').at(-1).data.table.nightTurn,'doppelganger-insomniac');
+  f.timerExpired(f.room);assert.equal(results(f,'p0').length,2);
 });
 
 test('insomniac timeout never grants the unseen card, including on reconnect',()=>{
@@ -577,6 +654,21 @@ test('BUG-4: copied minion must receive wolf information in doppelganger phase',
   f.action('doppelganger','p0',{targetId:'p1'});
   assert.ok(f.messages('p0').some(m=>m.event==='night:info'&&m.data.wolves?.includes('p2')),
     'Copied minion should know wolves before normal werewolf phase');
+});
+
+test('copied minion knows its copy target but minions never receive each other as companions',()=>{
+  const f=fixture(['doppelganger','minion','werewolf','villager']);
+  f.action('doppelganger','p0',{targetId:'p1'});
+  assert.deepEqual(results(f,'p0')[0].data.table.revealed,[{playerId:'p1',role:'minion'}]);
+  const copyInfo=f.messages('p0').filter(m=>m.event==='night:info');
+  assert.equal(copyInfo.length,1);assert.deepEqual(copyInfo[0].data.wolves,['p2']);
+  assert.deepEqual(copyInfo[0].data.table.revealed,[{playerId:'p2',role:'werewolf',awakening:true}]);
+  for(const id of ['p1','p2','p3'])assert.ok(!f.messages(id).some(m=>['night:info','night:result','night:prompt'].includes(m.event)));
+  f.timerExpired(f.room);f.timerExpired(f.room);
+  assert.equal(f.room.activeRole,'minion');
+  assert.deepEqual(f.messages('p1').find(m=>m.event==='night:info').data.table.revealed,[{playerId:'p2',role:'werewolf',awakening:true}]);
+  assert.equal(f.messages('p0').filter(m=>m.event==='night:info').length,1);
+  assert.ok(!f.messages('p2').some(m=>m.event==='night:info'&&m.data.role==='minion'));
 });
 test('BUG-5: observing a doppelganger card must reveal card identity, not hidden copy choice',()=>{
   const f=fixture(['doppelganger','werewolf','seer']);
