@@ -78,6 +78,12 @@ for(const role of ['werewolf','mason','insomniac'])test(`copied ${role} receives
   f.action('doppelganger','p0',{targetId:'p1'});
   assert.equal(f.room.actionPrompt,null);
   f.beginAction(f.room,role);
+  if(role==='insomniac') {
+    assert.ok(f.messages('p0').some(m=>m.event==='night:prompt'&&m.data.targetRole===role));
+    f.applyNightAction(f.room,'p0',{});
+    assert.equal(results(f,'p0').at(-1).data.currentRole,'doppelganger');
+    return;
+  }
   assert.ok(f.messages('p0').some(m=>m.event==='night:info'&&m.data.role===role));
 });
 for(const role of ['villager','tanner','hunter'])test(`copied ${role} clearly finishes with no extra night action`,()=>{
@@ -305,11 +311,54 @@ test('PASS baseline: drunk swaps without seeing the card and preserves ownership
   assert.equal(f.room.center[0].role,'drunk');assert.equal(results(f,'p0')[0].data.currentRole,undefined);
   assert.equal(f.room.cards.filter(c=>c.ownerId==='p0').length,1);
 });
-test('PASS baseline: insomniac sees current card',()=>{
+test('insomniac learns its exchanged card only after clicking, once and privately',()=>{
   const f=fixture(['insomniac','troublemaker','werewolf']);
   f.action('troublemaker','p1',{targetId:'p0',secondTargetId:'p2'});
   f.timerExpired(f.room);
-  assert.equal(f.messages('p0').find(m=>m.event==='night:info').data.currentRole,'werewolf');
+  assert.ok(f.messages('p0').some(m=>m.event==='night:prompt'));
+  assert.equal(results(f,'p0').length,0);
+  const deadline=f.room.timerEndsAt;
+  f.applyNightAction(f.room,'p2',{});
+  assert.equal(results(f,'p2').length,0);
+  f.applyNightAction(f.room,'p0',{});
+  assert.equal(results(f,'p0')[0].data.currentRole,'werewolf');
+  assert.deepEqual(results(f,'p0')[0].data.table.revealed,[{playerId:'p0',role:'werewolf'}]);
+  assert.equal(f.room.timerEndsAt,deadline);
+  f.applyNightAction(f.room,'p0',{});
+  assert.equal(results(f,'p0').length,1);
+  assert.equal(f.messages('p1').filter(m=>m.event==='night:result'&&m.data.currentRole).length,0);
+});
+
+test('both insomniacs can independently click, reconnect and resume without early disclosure',()=>{
+  const f=fixture(['insomniac','doppelganger','werewolf']);f.room.copyRoles.set('p1','insomniac');
+  f.beginAction(f.room,'insomniac');
+  for(const id of ['p0','p1'])assert.ok(f.messages(id).some(m=>m.event==='night:prompt'));
+  const restored=f.reconnect('p1');
+  assert.ok(restored.some(m=>m.event==='night:prompt'));
+  assert.ok(!restored.some(m=>m.data.currentRole));
+  f.handle(f.room.players.get('p0').socket,'game:pause',{});
+  f.applyNightAction(f.room,'p1',{});assert.equal(results(f,'p1').length,0);
+  f.handle(f.room.players.get('p0').socket,'game:resume',{});
+  assert.equal(f.messages('p0').filter(m=>m.event==='night:prompt').length,2);
+  f.applyNightAction(f.room,'p1',{});assert.equal(results(f,'p1').length,1);
+  f.applyNightAction(f.room,'p0',{});assert.equal(results(f,'p0').length,1);
+  assert.ok(!f.reconnect('p0').some(m=>m.event==='night:prompt'));
+});
+
+test('insomniac timeout never grants the unseen card, including on reconnect',()=>{
+  const f=fixture(['insomniac','werewolf','villager']);
+  f.room.cards.find(c=>c.ownerId==='p0').role='seer';f.beginAction(f.room,'insomniac');
+  f.timerExpired(f.room);f.applyNightAction(f.room,'p0',{});
+  assert.equal(results(f,'p0').length,0);
+  assert.ok(f.messages('p0').some(m=>m.event==='night:turn-ended'&&m.data.reason==='timeout'));
+  assert.ok(!f.reconnect('p0').some(m=>m.data.currentRole||m.event==='night:prompt'));
+});
+
+test('bot insomniac completes its private check automatically',()=>{
+  const f=fixture(['insomniac','werewolf','villager']);f.room.players.get('p0').isBot=true;
+  f.beginAction(f.room,'insomniac');
+  assert.equal(results(f,'p0')[0].data.currentRole,'insomniac');
+  assert.ok(f.room.actionDone.has('insomniac:p0'));
 });
 test('public night deadlines do not change after early completion or a copied action',()=>{
   const f=fixture(['doppelganger','robber','werewolf']);
@@ -374,6 +423,26 @@ test('PASS baseline: minion knows wolves but wolves do not learn minion',()=>{
   const f=fixture(['minion','werewolf','werewolf']);f.beginAction(f.room,'minion');
   assert.deepEqual(f.messages('p0').find(m=>m.event==='night:info').data.wolves,['p1','p2']);
   assert.equal(f.messages('p1').filter(m=>m.event==='night:info').length,0);
+  assert.deepEqual(f.messages('p0').find(m=>m.event==='night:info').data.table.revealed,
+    ['p1','p2'].map(playerId=>({playerId,role:'werewolf',awakening:true})));
+});
+for(const copied of [false,true])test(`minion card grant uses waking wolves and is private (copied=${copied})`,()=>{
+  const f=fixture(copied?['doppelganger','minion','werewolf']:['minion','doppelganger','werewolf']);
+  if(!copied)f.room.copyRoles.set('p1','werewolf');
+  f.room.cards.find(c=>c.ownerId==='p2').role='tanner';
+  if(copied)f.action('doppelganger','p0',{targetId:'p1'});else f.beginAction(f.room,'minion');
+  const info=f.messages('p0').find(m=>m.event==='night:info').data;
+  assert.deepEqual(info.table.revealed.map(c=>c.playerId),copied?['p2']:['p1','p2']);
+  assert.ok(info.table.revealed.every(c=>c.role==='werewolf'&&c.awakening));
+  assert.equal(info.nightTurn,copied?'doppelganger':'minion');
+  assert.ok(!JSON.stringify(f.publicRoom(f.room)).includes('revealed'));
+  assert.equal(f.messages('p2').filter(m=>m.event==='night:info').length,0);
+});
+test('minion does not reveal center wolves when no wolves wake up',()=>{
+  const f=fixture(['minion','villager','seer'],['werewolf','werewolf','robber']);
+  f.beginAction(f.room,'minion');
+  const info=f.messages('p0').find(m=>m.event==='night:info').data;
+  assert.deepEqual(info.wolves,[]);assert.deepEqual(info.table.revealed,[]);
 });
 for(const [name,votes,killed] of [
   ['3 versus 2: runner-up survives',['p1','p0','p0','p0','p1'],['p0']],

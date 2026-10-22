@@ -317,6 +317,45 @@ test('insomniac reveal survives the actual info-before-phase message order',()=>
   f.handleMessage('game:phase',{...f.state.room,phase:'discussion',nightTurn:null});
   assert.doesNotMatch(f.nightTable(),/table-card-face/);
 });
+for(const copied of [false,true])test(`insomniac closeup hides its face until own-card click and permits retry (copied=${copied})`,()=>{
+  const f=tableFixture('insomniac',3);f.state.privateRole=copied?'doppelganger':'insomniac';
+  f.state.prompt=null;f.state.room.nightTurn='drunk';
+  const prompt={role:copied?'doppelganger-copy':'insomniac',targetRole:'insomniac',players:[],centerCount:0};
+  f.handleMessage('night:prompt',prompt);
+  f.handleMessage('room:state',{...f.state.room,nightTurn:'insomniac'});
+  assert.match(f.nightTable(),/insomniac-seat/);
+  assert.doesNotMatch(f.nightTable(),/table-card-face/);
+  assert.doesNotMatch(f.nightPanel(),/id="submit-night"|확인한 내 역할:/);
+  f.selectNightCard('player','p1');f.selectNightCard('center',0);assert.equal(f.sent.length,0);
+  f.selectNightCard('player','p0');f.selectNightCard('player','p0');assert.equal(f.sent.length,1);
+  assert.deepEqual(f.sent[0],{event:'night:action',data:{}});
+  assert.doesNotMatch(f.nightTable(),/table-card-face/);
+  f.handleMessage('error',{message:'retry'});f.selectNightCard('player','p0');assert.equal(f.sent.length,2);
+  const result={title:'내 카드 확인',currentRole:'werewolf',table:{closeup:true,nightTurn:'insomniac',revealed:[{playerId:'p0',role:'werewolf'}]}};
+  f.handleMessage('night:result',result);f.handleMessage('night:turn-ended',{reason:'completed'});
+  assert.match(f.nightTable(),/insomniac-seat/);assert.match(f.nightTable(),/내 자리 · 확인 당시 늑대인간/);
+  assert.equal(f.state.privateRole,'werewolf');
+  f.handleMessage('game:phase',{...f.state.room,phase:'discussion',nightTurn:null});
+  assert.doesNotMatch(f.nightTable(),/insomniac-seat|table-card-face/);
+  f.handleMessage('night:result',{...result,replay:true});assert.doesNotMatch(f.nightTable(),/insomniac-seat|table-card-face/);
+});
+test('insomniac cannot reveal while paused or after timeout and failed transport is retryable',()=>{
+  const f=tableFixture('insomniac',3);
+  f.state.room.phase='paused';f.selectNightCard('player','p0');assert.equal(f.sent.length,0);
+  f.state.room.phase='night';f.state.ws.readyState=3;f.selectNightCard('player','p0');
+  assert.equal(f.nightSelectionReady(),true);assert.equal(f.sent.length,0);
+  f.handleMessage('night:turn-ended',{reason:'timeout'});f.selectNightCard('player','p0');
+  assert.equal(f.sent.length,0);assert.doesNotMatch(f.nightTable(),/insomniac-seat|table-card-face/);
+});
+for(const nightTurn of ['minion','doppelganger'])test(`minion flips only wolf positions during ${nightTurn} and hides them next turn`,()=>{
+  const f=tableFixture(nightTurn,3);f.state.prompt=null;f.state.room.nightTurn='werewolf';
+  const data={role:'minion',nightTurn,wolves:['참가자 1','참가자 2'],table:{revealed:['p1','p2'].map(playerId=>({playerId,role:'werewolf',awakening:true}))}};
+  f.handleMessage('night:info',data);f.handleMessage('room:state',{...f.state.room,nightTurn});
+  assert.equal((f.nightTable().match(/table-card-face/g)||[]).length,2);
+  assert.doesNotMatch(f.nightTable(),/내 자리 · 깨어난 역할/);
+  f.handleMessage('game:phase',{...f.state.room,nightTurn:'mason'});assert.doesNotMatch(f.nightTable(),/table-card-face/);
+  f.handleMessage('night:info',{...data,replay:true});assert.doesNotMatch(f.nightTable(),/table-card-face/);
+});
 test('table seer changes between player and center selections without ambiguous submissions',()=>{
   const f=tableFixture();assert.equal(f.nightSelectionReady(),false);
   f.selectNightCard('player','p1');assert.equal(f.nightSelectionReady(),true);

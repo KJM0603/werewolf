@@ -10,7 +10,7 @@ const source=readFileSync('server.mjs','utf8').split('const server = createServe
 const context=vm.createContext({Buffer,process,join,randomBytes,setTimeout:(fn,ms)=>setTimeout(fn,Math.max(ms,120000)),clearTimeout});
 vm.runInContext(`${source}\nglobalThis.api={rooms,handle,beginNight,applyNightAction,publicRoom,send,privateSend,timerExpired};`,context);
 const api=context.api;let room,ws,messages=[];
-const allowed=['seer','robber','troublemaker','drunk','werewolf','mason','insomniac','doppelganger','villager'];
+const allowed=['seer','robber','troublemaker','drunk','werewolf','minion','mason','insomniac','doppelganger','villager'];
 function setup(role,count,copy,companion,current){
   if(!allowed.includes(role)||![3,5,8,10].includes(count))throw Error('Invalid fixture');
   if(room)clearTimeout(room.timer);messages=[];
@@ -18,6 +18,7 @@ function setup(role,count,copy,companion,current){
   const names=['달빛','고요한밤','별하늘','안개숲','새벽','은하수','보름달','산들바람','반딧불','긴이름참가자열여섯글자'];
   const assignments=Array.from({length:count},(_,i)=>[i===0?'me':`p${i}`,names[i],i===0?role:i===1&&role==='doppelganger'?copy:'villager']);
   if(['werewolf','mason'].includes(role)&&companion)assignments[1][2]=role;
+  if(role==='minion'&&companion){assignments[1][2]='werewolf';assignments[2][2]='werewolf';}
   if(role==='insomniac'&&['werewolf','seer'].includes(current)){
     assignments[1][2]=current;assignments[2][2]='troublemaker';
   }
@@ -34,7 +35,7 @@ function setup(role,count,copy,companion,current){
   }
   room.timerEndsAt=Date.now()+120000;api.send(ws,'room:state',api.publicRoom(room));
 }
-const controls=`<div style="padding:12px;display:flex;gap:8px;flex-wrap:wrap"><label>역할 <select id="test-role">${allowed.map(role=>`<option>${role}</option>`).join('')}</select></label><label>인원 <select id="test-count">${[3,5,8,10].map(n=>`<option ${n===10?'selected':''}>${n}</option>`).join('')}</select></label><label>복사 역할 <select id="copy-role">${['seer','robber','troublemaker','drunk','werewolf','mason','insomniac'].map(role=>`<option>${role}</option>`).join('')}</select></label><label>동료 <select id="test-companion"><option value="0">없음</option><option value="1">1명</option></select></label><label>불면증 확인 카드 <select id="test-current"><option value="insomniac">그대로</option><option value="werewolf">늑대인간으로 교환</option><option value="seer">예언자로 교환</option></select></label><button id="test-start">원탁 테스트 시작</button><button id="test-timeout">시간 종료</button><button id="test-error">다음 요청 오류</button><span>검증용 · 행동 시간 120초</span></div>`;
+const controls=`<div style="padding:12px;display:flex;gap:8px;flex-wrap:wrap"><label>역할 <select id="test-role">${allowed.map(role=>`<option>${role}</option>`).join('')}</select></label><label>인원 <select id="test-count">${[3,5,8,10].map(n=>`<option ${n===10?'selected':''}>${n}</option>`).join('')}</select></label><label>복사 역할 <select id="copy-role">${['seer','robber','troublemaker','drunk','werewolf','minion','mason','insomniac'].map(role=>`<option>${role}</option>`).join('')}</select></label><label>동료 <select id="test-companion"><option value="0">없음</option><option value="1">있음 (하수인은 늑대 2명)</option></select></label><label>불면증 확인 카드 <select id="test-current"><option value="insomniac">그대로</option><option value="werewolf">늑대인간으로 교환</option><option value="seer">예언자로 교환</option></select></label><button id="test-start">원탁 테스트 시작</button><button id="test-timeout">시간 종료</button><button id="test-error">다음 요청 오류</button><span>검증용 · 행동 시간 120초</span></div>`;
 const html=`<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>밤 원탁 검증</title><link rel="stylesheet" href="/styles.css">${controls}<main id="app"></main><div id="toast" class="toast"></div><script>localStorage.removeItem('one-night-session');</script><script src="/app.js"></script><script>
 const accept=events=>events.forEach(message=>handleMessage(message.event,message.data));let rejectNext=false;
 send=(event,data={})=>{if(rejectNext){rejectNext=false;setTimeout(()=>handleMessage('error',{message:'검증용 오류입니다. 다시 시도해 주세요.'}),200);return true;}fetch('/action',{method:'POST',body:JSON.stringify({event,data})}).then(r=>r.json()).then(accept);return true;};

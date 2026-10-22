@@ -129,6 +129,10 @@ function privateSend(room, playerId, event, data) {
 }
 
 function sendActionPrompt(room) {
+  if (room.phase === 'night' && room.activeRole === 'insomniac') {
+    for (const id of pendingInsomniacs(room)) sendInsomniacPrompt(room, id);
+    return;
+  }
   const prompt = room.actionPrompt;
   if (room.phase !== 'night' || !prompt) return;
   privateSend(room, prompt.playerId, 'night:prompt', {
@@ -145,6 +149,18 @@ function roleForPlayer(room, playerId) {
 
 function playerCard(room, playerId) { return room.cards.find((c) => c.ownerId === playerId); }
 function actorIds(room, role) { return [...room.players.keys()].filter((id) => room.startRoles.get(id) === role || room.startRoles.get(id) === 'doppelganger' && room.copyRoles.get(id) === role && !IMMEDIATE_COPY_ROLES.has(role) && role !== 'minion'); }
+
+function minionInfo(room) {
+  const wolves = actorIds(room, 'werewolf');
+  return { role: 'minion', nightTurn: room.activeRole, wolves: wolves.map(id => room.players.get(id)?.name),
+    table: { revealed: wolves.map(playerId => ({ playerId, role: 'werewolf', awakening: true })) } };
+}
+function pendingInsomniacs(room) {
+  return room.activeRole === 'insomniac' ? actorIds(room, 'insomniac').filter(id => !room.actionDone.has(`insomniac:${id}`)) : [];
+}
+function sendInsomniacPrompt(room, id) {
+  privateSend(room, id, 'night:prompt', { role: room.startRoles.get(id) === 'doppelganger' ? 'doppelganger-copy' : 'insomniac', targetRole: 'insomniac', players: [], centerCount: 0 });
+}
 
 function setTimer(room, ms) {
   clearTimeout(room.timer);
@@ -264,8 +280,7 @@ function beginAction(room, role) {
     }
   }
   if (role === 'minion') {
-    const wolves = actorIds(room, 'werewolf').map((id) => room.players.get(id)?.name);
-    for (const id of room.actionActors) { privateSend(room, id, 'night:info', { role, wolves }); room.actionDone.add(`${role}:${id}`); }
+    for (const id of room.actionActors) { privateSend(room, id, 'night:info', minionInfo(room)); room.actionDone.add(`${role}:${id}`); }
     setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
   if (role === 'mason') {
@@ -279,7 +294,11 @@ function beginAction(room, role) {
     setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
   if (role === 'insomniac') {
-    for (const id of room.actionActors) { privateSend(room, id, 'night:info', { role, currentRole: playerCard(room, id)?.role }); room.actionDone.add(`${role}:${id}`); }
+    // Both the original and copied insomniac get the entire shared turn to click.
+    for (const id of room.actionActors) {
+      if (room.players.get(id)?.isBot) applyNightAction(room, id, {});
+      else sendInsomniacPrompt(room, id);
+    }
     setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
   }
   if (!active) {
@@ -366,6 +385,15 @@ function restartRoom(room) {
 }
 
 function applyNightAction(room, playerId, data) {
+  if (room.phase === 'night' && pendingInsomniacs(room).includes(playerId)) {
+    const currentRole = playerCard(room, playerId)?.role;
+    privateSend(room, playerId, 'night:result', { title: '내 카드 확인', currentRole,
+      table: { closeup: true, nightTurn: 'insomniac', revealed: [{ playerId, role: currentRole }] },
+      text: `현재 역할은 ${ROLE_NAME[currentRole]}입니다.` });
+    room.actionDone.add(`insomniac:${playerId}`);
+    privateSend(room, playerId, 'night:turn-ended', { reason: 'completed' });
+    return;
+  }
   if (room.phase !== 'night' || room.actionPrompt?.playerId !== playerId || room.actionPrompt.role === 'doppelganger-copy' && room.actionPrompt.targetRole !== room.copyRoles.get(playerId) || room.actionPrompt.role !== 'doppelganger-copy' && room.actionPrompt.role !== room.activeRole) return send(room.players.get(playerId)?.socket, 'error', { message: '현재 차례가 아닙니다.' });
   const prompt = room.actionPrompt;
   const actingAs = prompt.role;
@@ -392,7 +420,7 @@ function applyNightAction(room, playerId, data) {
       : copied === 'minion' ? '지금 늑대인간 정보를 확인합니다.' : '이 역할은 밤에 추가로 수행할 행동이 없습니다.';
     privateSend(room, playerId, 'night:result', { title: '복사한 역할', currentRole: copied, table: { revealed: [{playerId:data.targetId,role:copied}] }, text: `${room.players.get(data.targetId).name}님의 역할은 ${ROLE_NAME[copied] || copied}입니다. ${nextStep}` });
     if (copied === 'minion') {
-      privateSend(room, playerId, 'night:info', { role: 'minion', wolves: actorIds(room, 'werewolf').map((id) => room.players.get(id)?.name) });
+      privateSend(room, playerId, 'night:info', minionInfo(room));
     }
   } else if (actingAs === 'seer' || actingAs === 'doppelganger-copy' && ['seer'].includes(prompt.targetRole)) {
     if (Array.isArray(data.centerIndexes) && data.centerIndexes.length === 2) {
@@ -464,6 +492,7 @@ function timerExpired(room) {
   room.timer = null; room.timerEndsAt = null; room.remainingMs = 0;
   if (room.phase === 'role_reveal') beginNight(room);
   else if (room.phase === 'night') {
+    for (const id of pendingInsomniacs(room)) privateSend(room, id, 'night:turn-ended', { reason: 'timeout' });
     const active = room.actionPrompt?.playerId;
     if (active) completeActor(room, active, 'timeout');
     nextAction(room);
@@ -485,6 +514,7 @@ function skipTestPhase(room) {
     // Finish the whole night without discarding bot abilities or copied actions.
     // Unsubmitted human actions are skipped, just as on timeout.
     while (room.phase === 'night') {
+      for (const id of pendingInsomniacs(room)) privateSend(room, id, 'night:turn-ended', { reason: 'timeout' });
       const prompt = room.actionPrompt;
       if (prompt) {
         if (room.players.get(prompt.playerId)?.isBot) {
@@ -563,6 +593,7 @@ function handle(ws, event, data) {
       const prompt = targetRoom.actionPrompt;
       send(ws, 'night:prompt', { role: prompt.role, targetRole: prompt.targetRole || prompt.role, players: [...targetRoom.players.values()].filter((p) => p.id !== player.id).map(({ id, name }) => ({ id, name })), centerCount: targetRoom.center.length });
     }
+    if (targetRoom.phase === 'night' && pendingInsomniacs(targetRoom).includes(player.id)) sendInsomniacPrompt(targetRoom, player.id);
     broadcast(targetRoom, 'room:state', publicRoom(targetRoom)); return;
   }
   if (!room || !ws.playerId || !room.players.has(ws.playerId)) return emitError(ws, '먼저 방에 입장해 주세요.');
