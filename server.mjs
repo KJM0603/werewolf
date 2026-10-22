@@ -340,7 +340,7 @@ function startGame(room) {
   const players = [...room.players.values()];
   players.forEach((p, i) => { deck[i].ownerId = p.id; room.startRoles.set(p.id, deck[i].role); p.knowledge = { role: deck[i].role, events: [] }; privateSend(room, p.id, 'role:private', { role: deck[i].role, name: ROLE_NAME[deck[i].role] }); });
   room.center = deck.slice(n);
-  room.votes = new Map(); room.result = null;
+  room.votes = new Map(); room.result = null; room.chat = [];
   room.discussionSeconds = 600; room.votingSeconds = 20; room.extensionUsed = new Set(); room.voteRevealReason = null;
   room.phase = 'role_reveal';
   broadcast(room, 'game:phase', publicRoom(room));
@@ -353,7 +353,7 @@ function restartRoom(room) {
   clearTimer(room);
   Object.assign(room, {
     phase: 'lobby', cards: [], center: [], startRoles: new Map(), copyRoles: new Map(),
-    votes: new Map(), result: null, actionDone: new Set(), actionActors: [], actionIndex: 0,
+    votes: new Map(), chat: [], result: null, actionDone: new Set(), actionActors: [], actionIndex: 0,
     activeRole: null, actionPrompt: null, timerEndsAt: null, remainingMs: 0,
     discussionSeconds: 600, votingSeconds: 20, extensionUsed: new Set(),
     discussionSkipVotes: new Set(), voteRevealReason: null, pauseReason: null, previousPhase: null,
@@ -437,10 +437,13 @@ function resolveVotes(room) {
   // The two-vote minimum does not kill runners-up: only the highest count dies.
   const voteKilled = new Set(max > 1 ? [...counts.entries()].filter(([, count]) => count === max).map(([id]) => id) : []);
   const killedSet = new Set(voteKilled);
+  const hunterActions = [];
   for (const id of [...killedSet]) {
     if (roleForPlayer(room, id) === 'hunter') {
       const targetId = room.votes.get(id);
-      if (targetId && room.players.has(targetId)) killedSet.add(targetId);
+      const validTarget = targetId && room.players.has(targetId) ? targetId : null;
+      hunterActions.push({ hunterId: id, targetId: validTarget });
+      if (validTarget) killedSet.add(validTarget);
     }
   }
   const killed = [...killedSet];
@@ -453,7 +456,7 @@ function resolveVotes(room) {
   const minionSoloWin = (minionId) => !wolvesExist && finalRoles.some((p) => p.id === minionId && p.role === 'minion' && !p.killed) && finalRoles.some((p) => p.id !== minionId && p.killed);
   const minionWin = finalRoles.some((p) => p.role === 'minion' && minionSoloWin(p.id));
   const winners = finalRoles.map((p) => ({ id: p.id, win: p.role === 'tanner' ? p.killed : p.role === 'werewolf' ? wolfTeamWin : p.role === 'minion' ? wolfTeamWin || minionSoloWin(p.id) : villageWin }));
-  room.result = { finalRoles, killed, winners, villageWin, wolfTeamWin, minionWin, center: room.center.map((c) => ROLE_NAME[c.role]) };
+  room.result = { finalRoles, killed, hunterActions, winners, villageWin, wolfTeamWin, minionWin, center: room.center.map((c) => ROLE_NAME[c.role]) };
   broadcast(room, 'game:result', room.result); broadcast(room, 'room:state', publicRoom(room));
 }
 

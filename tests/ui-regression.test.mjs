@@ -5,7 +5,7 @@ import test from 'node:test';
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').split('setInterval(()=>')[0];
 function ui(document={querySelector:()=>null}) {
   const context=vm.createContext({document,setTimeout(){},clearTimeout(){},WebSocket:{OPEN:1}});
-  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,bindGameEvents,bindChatEvents,chatPanel,nightPanel,nightTable,selectNightCard,nightSelectionReady,submitNight,render,toggleMobileDiscussion,syncDiscussionViewport,updateMobileDiscussionControls};`,context);
+  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,roleCard,bindGameEvents,bindChatEvents,chatPanel,nightPanel,nightTable,selectNightCard,nightSelectionReady,submitNight,render,toggleMobileDiscussion,syncDiscussionViewport,updateMobileDiscussionControls};`,context);
   return {...context.api,context};
 }
 function result(roles,wins,killed=[]) {
@@ -40,6 +40,43 @@ test('returning to the same lobby clears private round data and invalidates old 
   f.handleMessage('room:state',{code:'SAME',phase:'lobby',hostId:'p0'});
   assert.equal(f.state.privateRole,null);assert.equal(f.state.privateResults.length,0);assert.equal(f.state.selectedTarget,null);
   assert.equal(f.state.selectedCenter.length,0);assert.equal(f.state.resultSplashComplete,true);assert.equal(f.state.resultSplashId,5);
+});
+
+test('round reset synchronizes displayed chat with server and reconnect never restores previous messages',()=>{
+  const f=ui();vm.runInContext('render=()=>{};notify=()=>{};syncPeers=()=>{};syncMediaToPhase=()=>{};saveSession=()=>{};',f.context);
+  Object.assign(f.state,{room:{code:'SAME',phase:'result'},chat:[{text:'지난 판의 대화'}]});
+  for(const [event,data] of [
+    ['room:state',{code:'SAME',phase:'lobby',chat:[]}],
+    ['game:phase',{code:'SAME',phase:'role_reveal',chat:[]}]
+  ]){
+    f.handleMessage(event,data);assert.equal(f.state.chat.length,0);assert.doesNotMatch(f.chatPanel(),/지난 판|대기실 대화/);
+    f.handleMessage('chat:message',{id:'new',playerId:'p1',text:'대기실 대화'});
+  }
+  f.handleMessage('room:joined',{room:{code:'SAME',phase:'discussion',chat:[{id:'current',text:'이번 판 대화'}]},playerId:'p0'});
+  assert.equal(f.state.chat.length,1);assert.match(f.chatPanel(),/이번 판 대화/);assert.doesNotMatch(f.chatPanel(),/지난 판|대기실 대화/);
+});
+
+test('failed human vote send retains hunter target and never reports success',()=>{
+  let submit;const notices=[],sent=[];
+  const f=ui({querySelector:id=>id==='#submit-vote'?{addEventListener:(_,fn)=>submit=fn}:null,querySelectorAll:()=>[]});
+  f.context.recordNotice=text=>notices.push(text);f.context.recordSend=data=>sent.push(data);
+  vm.runInContext('render=()=>{};notify=recordNotice;send=()=>false;',f.context);
+  f.state.room={phase:'voting'};f.state.privateRole='hunter';f.state.selectedTarget='p1';f.bindGameEvents();
+  submit();assert.equal(f.state.selectedTarget,'p1');assert.equal(notices.length,0);
+  vm.runInContext('send=(event,data)=>{recordSend({event,data});return true;};',f.context);
+  submit();assert.equal(sent[0].event,'vote:cast');assert.equal(sent[0].data.targetId,'p1');
+  assert.equal(f.state.selectedTarget,null);assert.match(notices[0],/전송/);
+});
+
+test('hunter role guide is private and result shows automatic target or missing vote',()=>{
+  const f=ui();f.state.privateRole='hunter';f.state.privateVisible=true;
+  assert.match(f.roleCard(),/투표한 대상도 자동으로 사망/);
+  f.state.privateVisible=false;assert.doesNotMatch(f.roleCard(),/사냥꾼|투표한 대상/);
+  const data=result(['hunter','werewolf','villager'],[true,false,true],['p0','p1']);
+  data.finalRoles[1].name='<늑대>';data.hunterActions=[{hunterId:'p0',targetId:'p1'}];
+  f.state.room={phase:'result',result:data};f.state.resultSplashComplete=true;
+  assert.match(f.resultPanel(),/&lt;늑대&gt;님에게 자동 발동/);
+  data.hunterActions[0].targetId=null;assert.match(f.resultPanel(),/투표 미제출로 추가 사망 대상이 없습니다/);
 });
 test('copied ability stays available after a failed send or server rejection and can be retried',()=>{
   const f=ui();const sent=[];

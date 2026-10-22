@@ -38,6 +38,9 @@ node tests/live-multiplayer.mjs
 프로젝트 루트에서 아래 중 필요한 서버 하나를 실행하고 주소를 여세요. 각 서버는 실행 창에서 `Ctrl+C`로 종료합니다.
 
 ```powershell
+# 사람 사냥꾼 투표·능력 발동·다시 하기 채팅 초기화: http://127.0.0.1:4191/
+node tests/browser/serve-hunter.mjs
+
 # 도플갱어 복사 능력: http://localhost:4189/
 node tests/browser/serve-doppelganger.mjs
 
@@ -47,6 +50,8 @@ node tests/browser/serve-media.mjs
 # 인물 분리와 배경 가림: http://localhost:4186/
 node tests/browser/serve-camera.mjs .local/archive/camera-vendor/portrait.jpg
 ```
+
+사냥꾼 검증 화면에서 **사냥꾼 검증 시작 → 투표 단계로 → 늑대 대상 → 비밀 투표 제출**을 누르면, 다른 두 참가자가 사냥꾼에게 투표한 결과가 적용됩니다. 사람 사냥꾼은 2표로 사망하고, 사냥꾼이 투표한 늑대도 1표이지만 함께 사망합니다. 결과 안내가 끝나면 자동 발동 대상을 확인하고 **다시 하기**로 이전 채팅이 비워진 대기실을 확인할 수 있습니다. 투표를 제출하는 대신 **투표 시간 종료**를 누르면 미투표로 추가 사망 대상이 없는 경우를 검증합니다. 이 서버는 실제 처리기를 사용하는 고정 배정 로컬 검증용이며 서비스 서버와 별도로 종료합니다.
 
 마지막 명령의 사진은 이전 실험 자료로 함께 보관한 파일입니다. 다른 사진 경로를 인자로 주셔도 됩니다. 합성 미디어 검증은 실제 사용자 장치 권한과 서로 다른 네트워크의 연결까지 보장하지 않습니다.
 

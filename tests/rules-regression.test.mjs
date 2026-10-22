@@ -101,12 +101,13 @@ test('restart retains room, members and roles but clears all previous round stat
   room.extensionUsed.add('p1');room.discussionSkipVotes=new Set(['p0']);room.discussionSeconds=660;
   room.players.get('p1').knowledge.events.push({event:'night:result',data:{text:'old secret'}});
   const identities=[...room.players.values()].map(p=>[p.id,p.token,p.socket]);const roles=[...room.roles];
+  room.chat.push({id:'old',text:'이전 판 대화'});
   f.handle(room.players.get('p0').socket,'game:restart',{});
   assert.equal(f.rooms.get('AUDIT'),room);assert.equal(room.phase,'lobby');assert.equal(room.hostId,'p0');
   assert.deepEqual([...room.roles],roles);assert.equal(room.customRoles,true);
   assert.deepEqual([...room.players.values()].map(p=>[p.id,p.token,p.socket]),identities);
   for(const key of ['startRoles','copyRoles','votes','actionDone','extensionUsed','discussionSkipVotes'])assert.equal(room[key].size,0,key);
-  for(const key of ['cards','center','actionActors'])assert.equal(room[key].length,0,key);
+  for(const key of ['cards','center','actionActors','chat'])assert.equal(room[key].length,0,key);
   for(const key of ['result','timer','timerEndsAt','activeRole','actionPrompt','pauseReason'])assert.equal(room[key],null,key);
   assert.equal(room.discussionSeconds,600);assert.equal(room.remainingMs,0);
   assert.ok([...room.players.values()].every(p=>!p.ready&&!p.knowledge));
@@ -139,7 +140,7 @@ test('result host can leave, successor restarts with bots and final human depart
   assert.equal(f.rooms.has('AUDIT'),false);
 });
 
-test('lobby chat broadcasts to other players and remains available after reconnect and game start',()=>{
+test('lobby chat broadcasts and survives reconnect but clears for all clients on game start',()=>{
   const f=fixture(['villager','seer','robber']);f.room.phase='lobby';
   f.handle(f.room.players.get('p1').socket,'chat:send',{text:'  준비됐습니다  '});
   assert.equal(f.messages('p0').at(-1).event,'chat:message');
@@ -147,7 +148,9 @@ test('lobby chat broadcasts to other players and remains available after reconne
   assert.equal(f.messages('p2').at(-1).data.playerId,'p1');
   assert.equal(f.reconnect('p1').find(m=>m.event==='room:joined').data.room.chat[0].text,'준비됐습니다');
   f.startGame(f.room);
-  assert.equal(f.publicRoom(f.room).chat[0].text,'준비됐습니다');
+  assert.equal(f.publicRoom(f.room).chat.length,0);
+  for(const id of ['p0','p1','p2'])assert.equal(f.messages(id).findLast(m=>m.event==='game:phase').data.chat.length,0);
+  assert.equal(f.reconnect('p1').find(m=>m.event==='room:joined').data.room.chat.length,0);
   const count=f.room.chat.length;f.room.phase='night';
   f.handle(f.room.players.get('p0').socket,'chat:send',{text:'밤에는 전송 불가'});
   assert.equal(f.room.chat.length,count);
@@ -400,6 +403,51 @@ test('a hunter below the highest vote count survives and does not kill its targe
   assert.deepEqual(Array.from(result.killed),['p0']);
   assert.equal(result.finalRoles[1].votes,2);
   assert.equal(result.finalRoles[1].deathReason,null);assert.equal(result.finalRoles[2].killed,false);
+});
+
+for(const isBot of [false,true])test(`${isBot?'AI':'human'} hunter vote submission automatically kills its target on leading votes`,()=>{
+  const f=fixture(['hunter','werewolf','villager']);f.room.players.get('p0').isBot=isBot;
+  f.enterVoting(f.room);
+  for(const [voter,target] of [['p0','p1'],['p1','p0'],['p2','p0']])f.handle(f.room.players.get(voter).socket,'vote:cast',{targetId:target});
+  assert.equal(f.room.phase,'vote_reveal');f.timerExpired(f.room);
+  assert.deepEqual(Array.from(f.room.result.killed),['p0','p1']);
+  assert.equal(f.room.result.finalRoles[1].deathReason,'hunter');
+  assert.equal(f.room.result.villageWin,true);
+  assert.deepEqual(JSON.parse(JSON.stringify(f.room.result.hunterActions)),[{hunterId:'p0',targetId:'p1'}]);
+  assert.ok(f.messages('p0').some(m=>m.event==='game:result'&&m.data.hunterActions[0].targetId==='p1'));
+});
+
+test('hunter tied for most votes kills its one-vote target',()=>{
+  const f=fixture(['hunter','villager','werewolf','villager','villager']);
+  const result=f.vote(['p2','p0','p1','p0','p1']);
+  assert.deepEqual(Array.from(result.killed).sort(),['p0','p1','p2']);
+  assert.equal(result.finalRoles[2].votes,1);assert.equal(result.finalRoles[2].deathReason,'hunter');
+});
+
+test('hunter with no submitted vote dies without a target and records why',()=>{
+  const f=fixture(['hunter','werewolf','villager']);f.enterVoting(f.room);
+  for(const id of ['p1','p2'])f.handle(f.room.players.get(id).socket,'vote:cast',{targetId:'p0'});
+  f.timerExpired(f.room);f.timerExpired(f.room);
+  assert.deepEqual(Array.from(f.room.result.killed),['p0']);
+  assert.equal(f.room.result.hunterActions[0].targetId,null);
+});
+
+test('all-one-vote hunter survives without triggering an ability',()=>{
+  const f=fixture(['hunter','werewolf','villager']);const result=f.vote(['p1','p2','p0']);
+  assert.equal(result.killed.length,0);assert.equal(result.hunterActions.length,0);
+});
+
+test('swapped hunter ability belongs to the final card holder, not the starting hunter',()=>{
+  const f=fixture(['hunter','robber','werewolf']);f.action('robber','p1',{targetId:'p0'});
+  const result=f.vote(['p1','p2','p1']);
+  assert.equal(result.finalRoles[0].role,'robber');assert.equal(result.finalRoles[1].role,'hunter');
+  assert.deepEqual(Array.from(result.killed),['p1','p2']);assert.equal(result.hunterActions[0].hunterId,'p1');
+});
+
+test('doppelganger that copied hunter uses its own vote when killed',()=>{
+  const f=fixture(['doppelganger','hunter','werewolf']);f.action('doppelganger','p0',{targetId:'p1'});
+  const result=f.vote(['p2','p0','p0']);
+  assert.deepEqual(Array.from(result.killed),['p0','p2']);assert.equal(result.hunterActions[0].hunterId,'p0');
 });
 
 for(const [name,roles,votes,expected] of [

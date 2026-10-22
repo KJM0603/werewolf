@@ -145,7 +145,7 @@ function handleMessage(event,data) {
   if(event==='error'){clearRoomRequestTimer();leavingRoom=false;restartingRoom=false;nightActionPending=false;state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
   if(event==='room:joined') { clearRoomRequestTimer();restartingRoom=false;resetMobileDiscussion();nightActionPending=false;nightTableFeedback=null;state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncPeers();render();return; }
   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
-    const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
+    const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;if(Array.isArray(data.chat))state.chat=data.chat;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
     if(data.phase==='lobby') {
       clearRoomRequestTimer();
       restartingRoom=false;nightActionPending=false;nightTableFeedback=null;
@@ -213,7 +213,8 @@ function videoGrid(room) {return `<div class="video-grid discussion-video-grid p
 function roleCard() {
   if(!state.privateRole)return `<div class="role-card"><div class="role-secret">서버가 비공개 역할을 배정하고 있습니다.</div></div>`;
   const role=ROLE_INFO[state.privateRole]||{name:state.privateRole,emoji:'🎭'};
-  return `<div class="role-card ${state.privateVisible?'':'secret-back'}" id="role-card">${state.privateVisible?`<div class="role-emoji">${role.emoji}</div><div class="role-name">${role.name}</div><div class="role-secret">이 역할은 나에게만 보여요.</div>`:`<div class="role-emoji">🎴</div><div class="role-name">역할 가림</div><div class="role-secret">탭해서 내 역할 확인</div>`}</div><div class="inline-actions" style="justify-content:center"><button class="btn ghost small" id="hide-role">${state.privateVisible?'역할 가리기':'역할 확인'}</button></div>`;
+  const guide=state.privateRole==='hunter'?'최종 역할이 사냥꾼이면, 최다 득표로 사망할 때 내가 투표한 대상도 자동으로 사망합니다. 투표 단계에서 대상을 선택하고 비밀 투표를 제출해 주세요. 밤에는 행동하지 않습니다.':'';
+  return `<div class="role-card ${state.privateVisible?'':'secret-back'}" id="role-card">${state.privateVisible?`<div class="role-emoji">${role.emoji}</div><div class="role-name">${role.name}</div><div class="role-secret">이 역할은 나에게만 보여요.${guide?`<br>${guide}`:''}</div>`:`<div class="role-emoji">🎴</div><div class="role-name">역할 가림</div><div class="role-secret">탭해서 내 역할 확인</div>`}</div><div class="inline-actions" style="justify-content:center"><button class="btn ghost small" id="hide-role">${state.privateVisible?'역할 가리기':'역할 확인'}</button></div>`;
 }
 
 function nightActionSpec() {
@@ -364,7 +365,11 @@ function resultPanel() {
   if(!state.resultSplashComplete){
     return `<div class="result-splash"><div class="result-splash-icon">${icon}</div><h2>${headline}</h2><p class="section-copy">${reason}</p></div>${resultActions()}`;
   }
-  return `<div class="section-kicker">THE REVEAL</div><h2 class="section-title">${headline}</h2><p class="section-copy">${reason}<br>중앙 카드: ${result.center.join(' · ')}</p><div class="player-list">${result.finalRoles.map(p=>{const win=result.winners.find(w=>w.id===p.id)?.win;return `<div class="winner"><span>${esc(p.name)} ${p.killed?'🪦':''}<small>시작: ${esc(ROLE_INFO[p.startRole]?.name||p.startRole)} · ${p.votes}표 · <span class="${p.killed?'lose-label':'win-label'}">${p.killed?(p.deathReason==='vote'?'최다 득표로 사망':p.deathReason==='hunter'?'사냥꾼의 지목으로 사망':'사망'):'생존'}</span></small></span><span>${ROLE_INFO[p.role]?.emoji||'🎭'} ${ROLE_INFO[p.role]?.name||p.role} · ${win?'<span class="win-label">승리</span>':'<span class="lose-label">패배</span>'}</span></div>`;}).join('')}</div>${resultActions()}`;
+  const hunterDetails=(result.hunterActions||[]).map(action=>{
+    const name=id=>esc(result.finalRoles.find(p=>p.id===id)?.name||'플레이어');
+    return `<p class="section-copy">🏹 ${name(action.hunterId)}님의 사냥꾼 능력: ${action.targetId?`${name(action.targetId)}님에게 자동 발동 · 함께 사망`:'투표 미제출로 추가 사망 대상이 없습니다.'}</p>`;
+  }).join('');
+  return `<div class="section-kicker">THE REVEAL</div><h2 class="section-title">${headline}</h2><p class="section-copy">${reason}<br>중앙 카드: ${result.center.join(' · ')}</p>${hunterDetails}<div class="player-list">${result.finalRoles.map(p=>{const win=result.winners.find(w=>w.id===p.id)?.win;return `<div class="winner"><span>${esc(p.name)} ${p.killed?'🪦':''}<small>시작: ${esc(ROLE_INFO[p.startRole]?.name||p.startRole)} · ${p.votes}표 · <span class="${p.killed?'lose-label':'win-label'}">${p.killed?(p.deathReason==='vote'?'최다 득표로 사망':p.deathReason==='hunter'?'사냥꾼의 지목으로 사망':'사망'):'생존'}</span></small></span><span>${ROLE_INFO[p.role]?.emoji||'🎭'} ${ROLE_INFO[p.role]?.name||p.role} · ${win?'<span class="win-label">승리</span>':'<span class="lose-label">패배</span>'}</span></div>`;}).join('')}</div>${resultActions()}`;
 }
 
 function discussionView(room) {
@@ -398,7 +403,7 @@ function gameView() {
     bindRoomEvents();bindRoleEvents();bindChatEvents();return;
   }
   const phase=room.phase;const title={role_reveal:'내 역할을 확인하세요',night:'모두 눈을 감으세요',discussion:'마을이 깨어났습니다',voting:'누구를 지목할까요?',vote_reveal:'결과 공개 준비',paused:'게임이 잠시 멈췄습니다',result:'게임 결과'}[phase]||'게임 진행 중';
-  const hunterRule=room.roles.includes('hunter')?' 사냥꾼이 최다 득표로 사망하면, 사냥꾼이 지목한 사람도 함께 사망합니다.':'';
+  const hunterRule=room.roles.includes('hunter')?' 최종 역할이 사냥꾼인 사람이 최다 득표(동점 포함, 2표 이상)로 사망하면, 투표한 대상도 자동으로 함께 사망합니다. 별도의 능력 버튼은 없으며, 투표를 제출하지 않으면 추가 사망 대상이 없습니다.':'';
   if(phase==='discussion'){discussionView(room);return;}
   let content='';
   if(phase==='role_reveal')content=`<div class="section-kicker">YOUR ROLE</div><h2 class="section-title">내 역할을 확인하세요</h2><p class="section-copy">카드를 확인한 뒤 화면을 가려 주세요. 밤이 곧 시작됩니다.</p>${timerMarkup()}${roleCard()}<div class="center-cards">중앙 카드 3장은 게임 종료 전까지 공개되지 않습니다.</div>`;
@@ -467,7 +472,7 @@ function bindGameEvents() {
   document.querySelectorAll('[data-night-player]').forEach(btn=>btn.addEventListener('click',()=>selectNightCard('player',btn.dataset.nightPlayer)));
   document.querySelector('#submit-night')?.addEventListener('click',submitNight);
   document.querySelectorAll('[data-vote]').forEach(btn=>btn.addEventListener('click',()=>{state.selectedTarget=btn.dataset.vote;render();}));
-  document.querySelector('#submit-vote')?.addEventListener('click',()=>{send('vote:cast',{targetId:state.selectedTarget});state.selectedTarget=null;notify('투표를 제출했습니다.');render();});
+  document.querySelector('#submit-vote')?.addEventListener('click',()=>{if(!send('vote:cast',{targetId:state.selectedTarget}))return;state.selectedTarget=null;notify('투표를 전송했습니다.');render();});
   document.querySelector('#leave-room')?.addEventListener('click',leaveRoom);
   document.querySelector('#home-button')?.addEventListener('click',leaveRoom);
   document.querySelector('#restart-game')?.addEventListener('click',restartGame);

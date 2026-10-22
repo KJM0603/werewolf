@@ -43,6 +43,8 @@ try {
   await wait(() => host.room.players.filter(p => p.ready).length === 2);
   host.send('game:start');
   await wait(() => clients.every(c => c.room.phase === 'discussion'), 60000);
+  host.send('chat:send',{text:'이전 판 대화'});
+  await wait(()=>clients.every(c=>c.events.some(e=>e.event==='chat:message'&&e.data.text==='이전 판 대화')));
   assert.equal(host.room.discussionSkip.required, 2);
   clients[1].send('discussion:skip-vote', { agree: true });
   clients[1].send('discussion:skip-vote', { agree: true });
@@ -67,11 +69,16 @@ try {
   assert.ok(clients.every(c=>c.room.code===code&&c.room.result===null&&c.room.votesSubmitted===0));
   assert.deepEqual(host.room.players.map(p=>p.id),ids);
   assert.ok(host.room.players.every(p=>!p.ready));
+  assert.ok(clients.every(c=>c.room.chat.length===0));
+  host.send('chat:send',{text:'새 대기실 대화'});
+  await wait(()=>clients.every(c=>c.events.some(e=>e.event==='chat:message'&&e.data.text==='새 대기실 대화')));
   clients[1].send('player:ready',{ready:true});clients[2].send('player:ready',{ready:true});
   await wait(()=>host.room.players.filter(p=>p.ready).length===2);
   host.send('game:start');await wait(()=>clients.every(c=>c.room.phase==='role_reveal'));
   assert.ok(clients.every(c=>c.room.code===code&&c.events.filter(e=>e.event==='role:private').length===2));
+  assert.ok(clients.every(c=>c.room.chat.length===0));
   console.log('PASS: completed round, rejected nonhost restart, same room and players, readiness reset, fresh roles for second round.');
+  console.log('PASS: previous-round chat cleared in lobby and lobby chat cleared for all clients on the second game start.');
 } finally {
   for (const c of clients) c.ws.close();
   server.kill();
