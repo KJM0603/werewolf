@@ -31,17 +31,11 @@ function code() { return randomBytes(3).toString('hex').toUpperCase(); }
 function token() { return randomBytes(24).toString('base64url'); }
 function card(role) { return { id: token(), role, copyRole: null }; }
 function defaultRoles(playerCount) {
-  const roles = [];
-  const add = (role, n = 1) => { for (let i = 0; i < n; i += 1) roles.push(role); };
-  add('werewolf', playerCount >= 4 ? 2 : 1);
-  add('seer'); add('robber');
-  if (playerCount >= 4) add('troublemaker');
-  if (playerCount >= 5) add('drunk');
-  if (playerCount >= 6) add('doppelganger');
-  if (playerCount >= 7) add('tanner');
-  if (playerCount >= 8) add('minion');
-  if (playerCount >= 9) add('insomniac');
-  while (roles.length < playerCount + 3) add('villager');
+  const roles = ['werewolf', 'seer', 'robber', 'troublemaker', 'drunk',
+    'insomniac', 'tanner', 'werewolf', 'hunter', 'minion', 'doppelganger', 'mason', 'mason'];
+  // Twelve cards cannot include all eleven earlier cards plus a Mason pair.
+  // Keep villagers at zero by deferring the Doppelganger until ten players.
+  if (playerCount === 9) roles.splice(roles.indexOf('doppelganger'), 1);
   return roles.slice(0, playerCount + 3);
 }
 

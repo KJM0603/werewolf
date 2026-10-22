@@ -277,6 +277,45 @@ for(let n=3;n<=10;n++) test(`PASS baseline: ${n} players receive N+3 unique card
   assert.equal(new Set(f.room.cards.map(c=>c.id)).size,n+3);
   for(const id of f.room.players.keys())assert.equal(f.room.cards.filter(c=>c.ownerId===id).length,1);
 });
+
+test('recommended deck follows requested additions with zero villagers and paired Masons',()=>{
+  const f=fixture(['villager']);
+  const expected=['werewolf','seer','robber','troublemaker','drunk','insomniac'];
+  for(let n=1;n<=3;n++)assert.deepEqual(Array.from(f.defaultRoles(n)),expected.slice(0,n+3));
+  for(const [n,added] of [[4,'tanner'],[5,'werewolf'],[6,'hunter'],[7,'minion'],[8,'doppelganger']]) {
+    expected.push(added);assert.deepEqual(Array.from(f.defaultRoles(n)),expected);
+  }
+  assert.deepEqual(Array.from(f.defaultRoles(9)),[...expected.slice(0,-1),'mason','mason']);
+  assert.deepEqual(Array.from(f.defaultRoles(10)),[...expected,'mason','mason']);
+  for(let n=1;n<=10;n++) {
+    const roles=Array.from(f.defaultRoles(n));
+    assert.equal(roles.length,n+3);assert.ok(!roles.includes('villager'));
+    assert.ok([0,2].includes(roles.filter(r=>r==='mason').length));
+    assert.ok(roles.filter(r=>r==='werewolf').length<=2);
+    for(const role of new Set(roles.filter(r=>!['werewolf','mason'].includes(r))))assert.equal(roles.filter(r=>r===role).length,1);
+  }
+});
+
+test('new room, incremental human joins, AI additions, auto reset and leave use the recommended deck',()=>{
+  const f=fixture(['villager']);
+  const host={socket:{write(){},end(){}}};f.handle(host,'room:create',{name:'Host'});
+  const room=f.rooms.get(host.room);
+  assert.deepEqual(Array.from(room.roles),Array.from(f.defaultRoles(1)));
+  for(let n=2;n<=5;n++) {
+    f.handle({socket:{write(){},end(){}}},'room:join',{code:room.code,name:`Guest ${n}`});
+    assert.deepEqual(Array.from(room.roles),Array.from(f.defaultRoles(n)));
+  }
+  for(let n=6;n<=10;n++) {
+    f.handle(host,'room:bots:add',{count:1});
+    assert.deepEqual(Array.from(room.roles),Array.from(f.defaultRoles(n)));
+  }
+  f.handle(host,'roles:set',{roles:['villager']});assert.equal(room.customRoles,true);
+  f.handle(host,'roles:auto',{});
+  assert.equal(room.customRoles,false);assert.deepEqual(Array.from(room.roles),Array.from(f.defaultRoles(10)));
+  const guest=[...room.players.values()].find(p=>p.id!==room.hostId&&!p.isBot);
+  f.handle(guest.socket,'room:leave',{});
+  assert.deepEqual(Array.from(room.roles),Array.from(f.defaultRoles(9)));
+});
 test('PASS baseline: seer sees two distinct centers privately and cannot act twice',()=>{
   const f=fixture(['seer','werewolf','villager'],['drunk','tanner','robber']);
   f.action('seer','p0',{centerIndexes:[0,2]});
