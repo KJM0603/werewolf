@@ -1,8 +1,9 @@
 # Local server output and historical experiments
 .local/
 node_modules/
-*.pid
-npm-debug.log*
 .env
 .env.*
 !.env.example
+*.log
+*.pid
+tmp/

@@ -18,6 +18,69 @@ let chatHeight = 280;
 let micPending = false;
 let playbackBlocked = false;
 let nightActionPending = false;
+let rtcConfig = null;
+let rtcPending = null;
+let rtcError = '';
+let reconnectAttempt = 0;
+let lastServerMessage = 0;
+let connectingSince = 0;
+
+function loadIceConfig() {
+  if (rtcConfig && rtcConfig.expiresAt > Date.now() + 120000) return Promise.resolve(rtcConfig);
+  if (rtcPending) return rtcPending.promise;
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  const timer = setTimeout(() => finishIceConfig(null, '음성 중계 설정 응답이 지연되고 있습니다. 미디어 연결 재시도를 눌러 주세요.'), 10000);
+  rtcPending = { promise, resolve, reject, timer };
+  if (!send('rtc:config')) finishIceConfig(null, '서버 연결 후 미디어 연결 재시도를 눌러 주세요.');
+  return promise;
+}
+function finishIceConfig(config, error = '') {
+  const pending = rtcPending;
+  if (!pending) return;
+  clearTimeout(pending.timer); rtcPending = null;
+  rtcError = error;
+  if (error) { pending.reject(new Error(error)); return; }
+  rtcConfig = config;
+  for (const pc of state.peers.values()) {
+    if (pc.connectionState !== 'closed') {
+      try { pc.setConfiguration({ iceServers: config.iceServers, iceTransportPolicy: config.iceTransportPolicy }); }
+      catch { rtcError = '미디어 설정 갱신에 실패했습니다. 미디어 연결 재시도를 눌러 주세요.'; }
+    }
+  }
+  pending.resolve(config);
+}
+function browserNotice() {
+  if (state.room && state.room.phase !== 'lobby') return '';
+  if (!/KAKAOTALK/i.test(navigator.userAgent || '')) return '';
+  return '<aside class="connection-notice" role="note"><strong>Safari 또는 Chrome에서 열어 주세요.</strong><p>카카오톡 안에서는 마이크·카메라가 제한될 수 있습니다. 메뉴에서 외부 브라우저로 열거나 주소를 복사해 Safari·Chrome에 붙여 넣어 주세요. 브라우저를 바꾸실 경우 방에 들어가기 전에 이동해 주세요.</p></aside>';
+}
+function connectionNotice() {
+  if (state.room?.phase !== 'lobby') return '';
+  return `<aside class="connection-notice" role="status"><p>${esc(rtcError || '음성 사용 중에는 화면을 켜고 이 페이지를 유지해 주세요. 앱을 전환한 뒤 소리가 끊겼다면 연결을 다시 시도해 주세요.')}</p><button class="btn ghost small" id="retry-media">미디어 연결 재시도</button></aside>`;
+}
+async function retryMedia() {
+  try {
+    rtcConfig = null;
+    await loadIceConfig();
+    for (const pc of state.peers.values()) if (pc.connectionState !== 'closed') pc.restartIce();
+    await syncPeers();
+    render();
+    notify('미디어 연결을 다시 시도합니다.');
+  } catch (error) { rtcError = error.message; render(); notify(rtcError); }
+}
+
+function checkConnection() {
+  if (!state.room || document.visibilityState === 'hidden') return;
+  const ws = state.ws;
+  if (!ws || ws.readyState === WebSocket.CLOSED) { connect(() => rejoin()); return; }
+  if ((ws.readyState === WebSocket.OPEN && Date.now() - lastServerMessage > 45000) ||
+      (ws.readyState === WebSocket.CONNECTING && Date.now() - connectingSince > 12000)) { ws.close(); return; }
+  if (ws.readyState === WebSocket.OPEN) {
+    send('connection:ping');
+    if (state.room.phase === 'discussion') void syncPeers();
+  }
+}
 let nightTableFeedback = null;
 let insomniacApproachAt = 0;
 let mobileDiscussionView = 'video';
@@ -73,11 +136,12 @@ function notify(message) { toastEl.textContent = message; toastEl.classList.add(
 function saveSession() { if (state.room?.code && state.sessionToken) localStorage.setItem('one-night-session', JSON.stringify({code:state.room.code,token:state.sessionToken})); }
 function connect(onReady) {
   if (state.ws && state.ws.readyState === WebSocket.OPEN) return onReady?.();
+  if (state.ws && state.ws.readyState === WebSocket.CONNECTING) { state.ws.addEventListener('open', () => onReady?.(), { once: true }); return; }
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${scheme}//${location.host}/signal`); state.ws=ws;
-  ws.addEventListener('open',()=>{if(state.ws===ws)onReady?.();});
-  ws.addEventListener('message',(e)=>{if(state.ws!==ws)return;try { const msg=JSON.parse(e.data); handleMessage(msg.event,msg.data||{}); } catch { notify('서버 응답을 읽지 못했습니다.'); }});
-  ws.addEventListener('close',()=>{if(state.ws!==ws)return;if(leavingRoom)return returnToHome();stopCamera();for(const pc of state.peers.values())pc.close();state.peers.clear(); if(state.room){setTimeout(()=>{if(state.room&&state.ws===ws&&ws.readyState===WebSocket.CLOSED){connect(()=>rejoin());}},1500);}});
+  const ws = new WebSocket(`${scheme}//${location.host}${(location.pathname || '/').replace(/[^/]*$/, '')}signal`); state.ws=ws;connectingSince=Date.now();
+  ws.addEventListener('open',()=>{if(state.ws===ws){lastServerMessage=Date.now();onReady?.();}});
+  ws.addEventListener('message',(e)=>{if(state.ws!==ws)return;lastServerMessage=Date.now();try { const msg=JSON.parse(e.data); handleMessage(msg.event,msg.data||{}); } catch { notify('서버 응답을 읽지 못했습니다.'); }});
+  ws.addEventListener('close',()=>{if(state.ws!==ws)return;if(leavingRoom)return returnToHome();finishIceConfig(null,'서버와 연결이 끊겼습니다.');stopCamera();for(const pc of state.peers.values())pc.close();state.peers.clear();state.remoteStreams.clear(); if(state.room){const delay=Math.min(30000,1500*2**Math.min(reconnectAttempt++,5))+Math.random()*500;setTimeout(()=>{if(state.room&&state.ws===ws&&ws.readyState===WebSocket.CLOSED){connect(()=>rejoin());}},delay);}});
   ws.addEventListener('error',()=>{if(state.ws===ws)notify('서버에 연결할 수 없습니다. 서버가 실행 중인지 확인해 주세요.');});
 }
 function send(event,data={}) { if (!state.ws || state.ws.readyState!==WebSocket.OPEN) { notify('서버와 연결이 끊겼습니다. 잠시 후 다시 시도해 주세요.'); return false; } state.ws.send(JSON.stringify({event,data})); return true; }
@@ -95,6 +159,7 @@ function waitForRoomRequest(kind) {
   },8000);
 }
 function returnToHome() {
+  finishIceConfig(null, '방에서 나갔습니다.');rtcConfig=null;rtcError='';reconnectAttempt=0;
   clearRoomRequestTimer();
   localStorage.removeItem('one-night-session');
   const ws=state.ws;state.ws=null;
@@ -140,11 +205,16 @@ function resultActions() {
   return `<div class="room-actions result-actions">${hostView()?`<button type="button" class="btn" id="restart-game" ${restartingRoom||leavingRoom?'disabled':''}>${restartingRoom?'대기실로 이동 중…':'다시 하기'}</button>`:''}<button type="button" class="btn ghost" id="leave-room" ${leavingRoom?'disabled':''}>${leavingRoom?'나가는 중…':'메인으로 나가기'}</button></div><p class="muted">${hostView()?'같은 방 코드로 대기실에 돌아가 다음 판을 준비합니다.':'방장이 다시 하기를 누르면 같은 방의 대기실로 함께 이동합니다.'}</p>`;
 }
 function handleMessage(event,data) {
+  if(event==='connection:pong')return;
+  if(event==='rtc:config'){finishIceConfig(data);return;}
+  if(event==='rtc:config-error'){finishIceConfig(null,data.message);return;}
+  if(event==='error'&&reconnecting&&data.message==='재접속 정보를 찾을 수 없습니다.'){returnToHome();notify('이전 방이 종료되어 첫 화면으로 돌아왔습니다. 새 방을 만들어 주세요.');return;}
+  if(event==='room:joined')reconnecting=false;
   if(event==='room:left'){returnToHome();return;}
   if(event==='room:notice'){notify(data.message);return;}
   if(event==='error'&&leavingRoom){returnToHome();return;}
   if(event==='error'){clearRoomRequestTimer();leavingRoom=false;restartingRoom=false;nightActionPending=false;state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
-  if(event==='room:joined') { clearRoomRequestTimer();restartingRoom=false;resetMobileDiscussion();nightActionPending=false;nightTableFeedback=null;state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncPeers();render();return; }
+  if(event==='room:joined') { reconnectAttempt=0;clearRoomRequestTimer();restartingRoom=false;resetMobileDiscussion();nightActionPending=false;nightTableFeedback=null;state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncMediaToPhase();syncPeers();render();return; }
   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
     const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;if(Array.isArray(data.chat))state.chat=data.chat;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
     if(data.phase==='lobby') {
@@ -195,10 +265,99 @@ function hostView() { return state.playerId===state.room?.hostId; }
 function playerName(id) { return state.room?.players?.find(p=>p.id===id)?.name||'플레이어'; }
 function copyCode() { navigator.clipboard?.writeText(state.room.code).then(()=>notify('초대 코드를 복사했습니다.')).catch(()=>notify(`방 코드: ${state.room.code}`)); }
 
+// Preview streams are local to the home screen and never enter WebRTC senders.
+const deviceChecks = Object.fromEntries(['audio','video'].map(kind=>[kind,{stream:null,pending:false,error:'',request:0,timer:null}]));
+let micMeterContext = null;
+let micMeterTimer = null;
+function deviceCheckConnected(kind) {
+  return Boolean(deviceChecks[kind].stream?.getTracks().some(track=>track.readyState==='live'&&track.enabled&&!track.muted));
+}
+function stopDeviceCheck(kind) {
+  const check=deviceChecks[kind];
+  check.request+=1;check.pending=false;
+  clearTimeout(check.timer);check.timer=null;
+  for(const track of check.stream?.getTracks()||[])track.stop();
+  check.stream=null;
+  if(kind==='audio'){
+    clearTimeout(micMeterTimer);micMeterTimer=null;
+    void micMeterContext?.close().catch(()=>{});micMeterContext=null;
+  }
+}
+function stopDeviceChecks() {
+  for(const kind of ['audio','video'])stopDeviceCheck(kind);
+}
+function deviceCheckMarkup(kind) {
+  const check=deviceChecks[kind], connected=deviceCheckConnected(kind), name=kind==='audio'?'마이크':'카메라';
+  const status=check.pending?'연결 중…':connected?'연결됨':check.stream?'입력 중단':'연결 안 됨';
+  return `<div class="device-check-item"><div class="device-check-row"><button type="button" class="btn ghost" id="check-${kind}" aria-describedby="check-${kind}-status">${name} ${check.pending?'연결 취소':check.stream?'연결 해제':'연결'}</button><span id="check-${kind}-status" class="device-check-status ${check.pending?'pending':connected?'connected':'disconnected'}" role="status"><span aria-hidden="true">${check.pending?'…':connected?'✓':'✕'}</span> ${status}</span></div>${check.error?`<p class="device-check-error" role="alert">${esc(check.error)}</p>`:''}${kind==='video'&&check.stream?'<video id="device-camera-preview" autoplay muted playsinline aria-label="내 카메라 미리보기"></video><p class="muted">내 화면에서만 보이는 미리보기입니다.</p>':''}${kind==='audio'&&check.stream?'<label class="device-meter-label" for="device-mic-level">말씀하시면서 음량 막대가 움직이는지 확인해 주세요.</label><meter id="device-mic-level" min="0" max="100" value="0">마이크 입력 음량</meter>':''}</div>`;
+}
+function updateDeviceChecks() {
+  const panel=document.querySelector('#device-checks');
+  if(!panel)return;
+  const focused=document.activeElement?.id;
+  panel.innerHTML=`<h2>카메라·마이크 연결 점검</h2><p class="muted">입장 전에 버튼을 눌러 확인해 주세요. 방에 입장하면 점검이 종료되며, 토론 중에 다시 켤 수 있습니다.</p><div class="device-check-grid">${deviceCheckMarkup('video')}${deviceCheckMarkup('audio')}</div>`;
+  for(const kind of ['audio','video'])document.querySelector(`#check-${kind}`)?.addEventListener('click',()=>toggleDeviceCheck(kind));
+  const preview=document.querySelector('#device-camera-preview');
+  if(preview){preview.srcObject=deviceChecks.video.stream;preview.muted=true;void preview.play().catch(()=>{});}
+  if(focused==='check-audio'||focused==='check-video')document.querySelector(`#${focused}`)?.focus({preventScroll:true});
+}
+function startMicMeter(stream) {
+  const AudioContext=globalThis.AudioContext||globalThis.webkitAudioContext;
+  if(!AudioContext)return;
+  try {
+    const context=new AudioContext();micMeterContext=context;
+    void context.resume().catch(()=>{});
+    const analyser=context.createAnalyser();analyser.fftSize=256;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const samples=new Uint8Array(analyser.fftSize);
+    const measure=()=>{
+      if(micMeterContext!==context||deviceChecks.audio.stream!==stream)return;
+      analyser.getByteTimeDomainData(samples);
+      const rms=Math.sqrt(samples.reduce((sum,value)=>sum+((value-128)/128)**2,0)/samples.length);
+      const meter=document.querySelector('#device-mic-level');
+      if(meter)meter.value=Math.min(100,Math.round(rms*300));
+      micMeterTimer=setTimeout(measure,100);
+    };
+    measure();
+  }catch{deviceChecks.audio.error='마이크는 연결되었으나 음량 표시를 시작하지 못했습니다. 연결을 해제한 뒤 다시 점검해 주세요.';}
+}
+async function toggleDeviceCheck(kind) {
+  if(state.room)return;
+  const check=deviceChecks[kind],name=kind==='audio'?'마이크':'카메라';
+  if(check.pending||check.stream){stopDeviceCheck(kind);check.error='';updateDeviceChecks();return;}
+  check.error='';
+  if(!navigator.mediaDevices?.getUserMedia){check.error=`${name}에 접근할 수 없습니다. HTTPS 주소를 Safari 또는 Chrome에서 직접 열어 주세요.`;updateDeviceChecks();return;}
+  const request=++check.request;
+  check.pending=true;updateDeviceChecks();
+  check.timer=setTimeout(()=>{
+    if(check.request!==request)return;
+    stopDeviceCheck(kind);check.error='연결 응답이 없습니다. 브라우저의 권한 요청을 확인한 뒤 다시 눌러 주세요.';updateDeviceChecks();
+  },20000);
+  try {
+    const stream=await navigator.mediaDevices.getUserMedia({audio:kind==='audio',video:kind==='video'?{facingMode:'user',width:{ideal:640},height:{ideal:360}}:false});
+    if(check.request!==request||state.room){for(const track of stream.getTracks())track.stop();return;}
+    clearTimeout(check.timer);check.timer=null;check.pending=false;check.stream=stream;
+    if(!stream.getTracks().some(track=>track.kind===kind&&track.readyState==='live'))throw Object.assign(new Error(),{name:'NotFoundError'});
+    for(const track of stream.getTracks()){
+      track.addEventListener('ended',()=>{
+        if(check.stream!==stream)return;
+        stopDeviceCheck(kind);check.error=`${name} 연결이 끊겼습니다. 장치를 확인하고 다시 연결해 주세요.`;updateDeviceChecks();
+      });
+      for(const event of ['mute','unmute'])track.addEventListener(event,()=>{if(check.stream===stream)updateDeviceChecks();});
+    }
+    if(kind==='audio')startMicMeter(stream);
+    updateDeviceChecks();
+  }catch(error){
+    if(check.request!==request)return;
+    stopDeviceCheck(kind);check.error=mediaInputError(error,name);updateDeviceChecks();
+  }
+}
+
 function landing() {
   const saved=JSON.parse(localStorage.getItem('one-night-session')||'null');
   if(saved&&!state.room&&!reconnecting){reconnecting=true;connect(()=>send('room:reconnect',saved));}
-  app.innerHTML=`<div class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="guide-header"><span class="top-note">A SOCIAL DEDUCTION PARTY GAME</span><a class="btn ghost small guide-link" href="guide/" target="_blank" rel="noopener noreferrer" title="새 탭에서 설명서 열기">설명서 보기</a></div></header><section class="hero"><div class="eyebrow">One night. One village. One secret.</div><h1>한밤의<br>늑대인간</h1><p>누가 늑대인간일까요? 친구들과 밤의 비밀을 나누고, 낮이 오기 전에 서로의 진짜 역할을 찾아보세요.</p></section><section class="landing-grid"><form class="panel" id="create-form"><h2>새로운 방 만들기</h2><div class="muted">친구들을 초대하고 게임을 시작하세요.</div><label class="field-label" for="create-name">내 닉네임</label><input class="input" id="create-name" maxlength="16" placeholder="예: 달빛" required><button class="btn full" type="submit">방 만들기 <span aria-hidden="true">↗</span></button></form><form class="panel" id="join-form"><h2>초대 코드로 참가</h2><div class="muted">친구에게 받은 6자리 코드를 입력하세요.</div><label class="field-label" for="join-name">내 닉네임</label><input class="input" id="join-name" maxlength="16" placeholder="예: 고요한밤" required><label class="field-label" for="join-code">방 코드</label><input class="input" id="join-code" maxlength="6" placeholder="A1B2C3" required style="text-transform:uppercase;letter-spacing:.14em"><button class="btn ghost full" type="submit">게임 참가</button></form></section><div class="landing-foot">3–10명 · 음성 또는 채팅으로 플레이 · 한 판 약 12분 (연장 제외)</div></div>`;
+  app.innerHTML=`<div class="shell"><header class="topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="guide-header"><span class="top-note">A SOCIAL DEDUCTION PARTY GAME</span><a class="btn ghost small guide-link" href="guide/" target="_blank" rel="noopener noreferrer" title="새 탭에서 설명서 열기">설명서 보기</a></div></header><section class="hero"><div class="eyebrow">One night. One village. One secret.</div><h1>한밤의<br>늑대인간</h1><p>누가 늑대인간일까요? 친구들과 밤의 비밀을 나누고, 낮이 오기 전에 서로의 진짜 역할을 찾아보세요.</p></section><section class="landing-grid"><form class="panel" id="create-form"><h2>새로운 방 만들기</h2><div class="muted">친구들을 초대하고 게임을 시작하세요.</div><label class="field-label" for="create-name">내 닉네임</label><input class="input" id="create-name" maxlength="16" placeholder="예: 달빛" required><button class="btn full" type="submit">방 만들기 <span aria-hidden="true">↗</span></button></form><form class="panel" id="join-form"><h2>초대 코드로 참가</h2><div class="muted">친구에게 받은 6자리 코드를 입력하세요.</div><label class="field-label" for="join-name">내 닉네임</label><input class="input" id="join-name" maxlength="16" placeholder="예: 고요한밤" required><label class="field-label" for="join-code">방 코드</label><input class="input" id="join-code" maxlength="6" placeholder="A1B2C3" required style="text-transform:uppercase;letter-spacing:.14em"><button class="btn ghost full" type="submit">게임 참가</button></form></section><section class="panel device-checks" id="device-checks" aria-label="카메라와 마이크 점검"></section><div class="landing-foot">3–10명 · 음성 또는 채팅으로 플레이 · 한 판 약 12분 (연장 제외)</div></div>`;
+  updateDeviceChecks();
   document.querySelector('#create-form').addEventListener('submit',(e)=>{e.preventDefault();const name=document.querySelector('#create-name').value.trim();connect(()=>send('room:create',{name}));});
   document.querySelector('#join-form').addEventListener('submit',(e)=>{e.preventDefault();const name=document.querySelector('#join-name').value.trim();const code=document.querySelector('#join-code').value.trim().toUpperCase();connect(()=>send('room:join',{name,code}));});
 }
@@ -391,7 +550,7 @@ function resultPanel() {
 function discussionView(room) {
   const hasExtension=!(room.extensionUsed||[]).includes(state.playerId);
   const seconds=Math.ceil(Math.max(0,(room.timerEndsAt||state.timerNow)-state.timerNow)/1000);
-  app.innerHTML=`<div class="game-shell discussion-shell" data-mobile-view="${mobileDiscussionView}"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions"><button type="button" class="btn ghost mobile-chat-toggle" id="mobile-chat-toggle" aria-controls="discussion-chat" aria-pressed="false">채팅</button>${discussionSkipMarkup(room)}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock" style="--chat-height:${chatHeight}px"><div class="discussion-chat" id="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button type="button" class="btn ghost ${playbackBlocked?'':'hidden'}" id="play-remote-audio">상대 소리 재생</button><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
+  app.innerHTML=`<div class="game-shell discussion-shell" data-mobile-view="${mobileDiscussionView}"><header class="game-top discussion-topbar"><div class="brand"><span class="brand-mark">☾</span> ONE NIGHT</div><div class="discussion-clock"><strong id="timer">${String(Math.floor(seconds/60)).padStart(2,'0')}:${String(seconds%60).padStart(2,'0')}</strong><span>남은 토론 시간</span></div><div class="discussion-top-actions"><button type="button" class="btn ghost mobile-chat-toggle" id="mobile-chat-toggle" aria-controls="discussion-chat" aria-pressed="false">채팅</button>${discussionSkipMarkup(room)}<button type="button" class="btn ghost small" id="retry-media">미디어 연결 재시도</button>${rtcError?`<span class="discussion-connection-error" role="status">${esc(rtcError)}</span>`:''}${room.pauseAvailable&&hostView()?'<button class="btn danger small" id="pause-game">게임 중지</button>':''}<div class="room-code">방 ${room.code} · ${room.players.length}명</div></div></header><main class="discussion-main"><div class="discussion-video-wrap">${videoGrid(room)}</div><footer class="discussion-dock" style="--chat-height:${chatHeight}px"><div class="discussion-chat" id="discussion-chat">${chatPanel()}</div><div class="discussion-tools"><button type="button" class="btn ghost ${playbackBlocked?'':'hidden'}" id="play-remote-audio">상대 소리 재생</button><button class="btn ghost" id="mic-toggle">${state.micOn?'마이크 끄기':'마이크 켜기'}</button><button class="btn ghost" id="camera-toggle">${state.cameraPending?'카메라 준비 취소':state.cameraOn?'카메라 끄기':'카메라 켜기 · 배경 가림'}</button><button class="btn extend-btn" id="extend-time" ${!hasExtension?'disabled':''}>${hasExtension?'토론 1분 연장':'연장권 사용 완료'}</button><small>${state.micOn?'마이크 켜짐':'마이크 꺼짐'} · ${state.cameraPending?'배경 가림 준비 중…':state.cameraOn?'카메라 켜짐 · 배경 가림 적용':'카메라 꺼짐 · 켜면 배경 자동 가림'}</small></div></footer></main></div>`;
   bindGameEvents();bindAudio();bindVideo();bindMediaElements();scrollChat();syncDiscussionViewport();
 }
 
@@ -433,6 +592,7 @@ function gameView() {
 }
 
 function render() {
+  if(state.room)stopDeviceChecks();
   const oldInput=document.querySelector('#chat-input');
   const draft=oldInput?.value||'', start=oldInput?.selectionStart, end=oldInput?.selectionEnd;
   const keepChatFocus=document.activeElement?.id==='chat-input';
@@ -442,6 +602,8 @@ function render() {
   const oldScroll=oldBox?.scrollTop||0;
   const follow=oldBox&&oldBox.scrollHeight-oldScroll-oldBox.clientHeight<48;
   if(!state.room)landing();else gameView();
+  app?.insertAdjacentHTML('afterbegin', browserNotice() + connectionNotice());
+  document.querySelector('#retry-media')?.addEventListener('click', retryMedia);
   const input=document.querySelector('#chat-input');
   if(input&&oldInput){input.value=draft;if(keepChatFocus){input.focus({preventScroll:true});input.setSelectionRange(start??draft.length,end??draft.length);}}
   const notes=document.querySelector('#private-notes');if(notes&&notesOpen)notes.open=true;
@@ -596,11 +758,16 @@ function bindMediaElements() {
   for(const tile of document.querySelectorAll('.video-tile')){const id=tile.id.slice(5);const stream=id===state.playerId?state.localStream:state.remoteStreams.get(id);const hasVideo=(stream?.getVideoTracks()||[]).some(track=>track.readyState==='live'&&track.enabled&&!track.muted);tile.classList.toggle('has-video',Boolean(hasVideo));}
 }
 
-function syncPeers(force=false) {
+async function syncPeers(force=false) {
   if(!state.room||!state.playerId)return;
   const others=state.room.players.filter(p=>p.id!==state.playerId&&p.connected&&!p.isBot);
   for(const [id,pc] of state.peers)if(!others.some(p=>p.id===id)){pc.close();state.peers.delete(id);state.remoteStreams.delete(id);}
-  if(state.room.phase==='discussion'||state.micOn||state.cameraOn||force)for(const peer of others){
+  if(!(state.room.phase==='discussion'||state.micOn||state.cameraOn||force))return;
+  const room=state.room;
+  try { await loadIceConfig(); } catch(error) { if(state.room===room){rtcError=error.message;render();notify(rtcError);}return; }
+  if(state.room?.code!==room.code||!state.room||!(state.room.phase==='discussion'||state.micOn||state.cameraOn||force))return;
+  for(const peer of others){
+    if(!state.room.players.some(p=>p.id===peer.id&&p.connected&&!p.isBot))continue;
     // One offerer per pair avoids simultaneous startup creating duplicate tracks.
     const pc=state.peers.get(peer.id)||createPeer(peer.id,state.playerId<peer.id);
     void syncLocalMediaToPeer(pc).catch(()=>notify('참가자에게 음성·영상을 연결하지 못했습니다.'));
@@ -608,17 +775,22 @@ function syncPeers(force=false) {
 }
 function createPeer(id,initiator=false) {
   if(state.peers.has(id))return state.peers.get(id);
-  const pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});pc.polite=state.playerId>id;pc.makingOffer=false;pc.ignoreOffer=false;pc.settingRemoteAnswer=false;pc.pendingCandidates=[];state.peers.set(id,pc);
+  const pc=new RTCPeerConnection({iceServers:rtcConfig.iceServers,iceTransportPolicy:rtcConfig.iceTransportPolicy});pc.polite=state.playerId>id;pc.makingOffer=false;pc.ignoreOffer=false;pc.settingRemoteAnswer=false;pc.pendingCandidates=[];state.peers.set(id,pc);
   if(initiator){pc.addTransceiver('audio',{direction:'sendrecv'});pc.addTransceiver('video',{direction:'sendrecv'});setPeerSenders(pc);}
   pc.onicecandidate=(e)=>{if(e.candidate)send('webrtc:ice-candidate',{to:id,payload:e.candidate});};
   pc.ontrack=(e)=>{let stream=state.remoteStreams.get(id);if(!stream){stream=new MediaStream();state.remoteStreams.set(id,stream);}if(!stream.getTracks().some(track=>track.id===e.track.id))stream.addTrack(e.track);setPeerSenders(pc);const updateVideo=()=>bindMediaElements();e.track.addEventListener('mute',updateVideo);e.track.addEventListener('unmute',updateVideo);e.track.addEventListener('ended',updateVideo);updateVideo();};
-  pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'||pc.connectionState==='disconnected')notify(`${playerName(id)}님과 미디어 연결이 끊겼습니다.`);};
+  pc.onconnectionstatechange=()=>{if(pc.connectionState==='failed'){notify(`${playerName(id)}님과 미디어 연결을 다시 시도합니다.`);if(!pc.recoveryAt||Date.now()-pc.recoveryAt>15000){pc.recoveryAt=Date.now();void loadIceConfig().then(()=>{if(state.peers.get(id)===pc)pc.restartIce();}).catch(error=>{rtcError=error.message;render();});}}else if(pc.connectionState==='disconnected')notify(`${playerName(id)}님과 미디어 연결이 끊겼습니다. 연결이 돌아오지 않으면 미디어 연결 재시도를 눌러 주세요.`);};
   pc.onnegotiationneeded=async()=>{try{pc.makingOffer=true;await syncLocalMediaToPeer(pc);await pc.setLocalDescription();if(pc.localDescription?.type==='offer')send('webrtc:offer',{to:id,payload:pc.localDescription});}catch{if(pc.connectionState!=='closed')notify('음성·영상 연결 협상이 실패했습니다.');}finally{pc.makingOffer=false;}};
   return pc;
 }
 async function handleSignal(event,data) {
   if(!state.room?.players.some(p=>p.id===data.from&&!p.isBot))return;
-  let pc=state.peers.get(data.from);if(!pc)pc=createPeer(data.from,false);
+  let pc=state.peers.get(data.from);if(!pc){
+    const room=state.room;
+    try{await loadIceConfig();}catch(error){rtcError=error.message;render();return;}
+    if(!state.room||state.room.code!==room.code||!state.room.players.some(p=>p.id===data.from&&p.connected&&!p.isBot))return;
+    pc=createPeer(data.from,false);
+  }
   // WebSocket messages arrive in order, but their async SDP work must finish in
   // order too. Keep early ICE until a remote description has been installed.
   pc.signalQueue=(pc.signalQueue||Promise.resolve()).then(async()=>{
@@ -644,9 +816,15 @@ async function handleSignal(event,data) {
   return pc.signalQueue;
 }
 globalThis.addEventListener?.('pagehide',stopCamera);
+globalThis.addEventListener?.('pagehide',stopDeviceChecks);
+document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='hidden'){stopDeviceChecks();updateDeviceChecks();}});
 globalThis.addEventListener?.('resize',syncDiscussionViewport);
 globalThis.visualViewport?.addEventListener('resize',syncDiscussionViewport);
 globalThis.visualViewport?.addEventListener('scroll',syncDiscussionViewport);
 function scrollChat() {const box=document.querySelector('#chat-box');if(box)box.scrollTop=box.scrollHeight;}
 setInterval(()=>{state.timerNow=Date.now();const room=state.room;if(room?.timerEndsAt){const ms=Math.max(0,room.timerEndsAt-state.timerNow);const s=Math.ceil(ms/1000);for(const node of document.querySelectorAll('#timer, #insomniac-timer'))node.textContent=`${String(Math.floor(s/60)).padStart(2,'0')}:${String(s%60).padStart(2,'0')}`;}},500);
 render();
+globalThis.addEventListener?.('online',checkConnection);
+globalThis.addEventListener?.('pageshow',checkConnection);
+document.addEventListener?.('visibilitychange',()=>{if(document.visibilityState==='visible'){checkConnection();bindMediaElements();}});
+setInterval(checkConnection,15000);

@@ -2,7 +2,7 @@
 
 :root { color-scheme: dark; font-family: 'DM Sans', 'Noto Sans KR', sans-serif; background:#111216; color:#f5f4f2; font-synthesis:none; }
 * { box-sizing:border-box; }
-body { margin:0; min-width:320px; min-height:100vh; background:radial-gradient(ellipse at 50% -30%, #39324d 0, #17171d 37%, #111216 72%); }
+body { margin:0; min-width:min(320px,100%); min-height:100vh; background:radial-gradient(ellipse at 50% -30%, #39324d 0, #17171d 37%, #111216 72%); }
 button,input { font:inherit; }
 button { color:inherit; cursor:pointer; }
 button:disabled { cursor:not-allowed; opacity:.42; }
@@ -39,6 +39,18 @@ h1 { font-size:clamp(38px, 7vw, 66px); letter-spacing:-.065em; line-height:1.08;
 .btn.danger { background:#c95466; color:white; }
 .btn.small { padding:9px 12px; font-size:12px; }
 .landing-foot { color:#716f7b; text-align:center; font-size:11px; margin-top:25px; }
+.device-checks { max-width:720px; margin:14px auto 0; }
+.device-check-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:18px; }
+.device-check-row { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
+.device-check-row .btn { min-height:44px; }
+.device-check-status { font-size:13px; font-weight:600; }
+.device-check-status.connected { color:#71d3a4; }
+.device-check-status.disconnected,.device-check-error { color:#ff9baa; }
+.device-check-status.pending { color:#c5b1f1; }
+.device-check-error,.device-meter-label { display:block; font-size:13px; line-height:1.6; margin:12px 0; overflow-wrap:anywhere; }
+#device-camera-preview { display:block; width:100%; aspect-ratio:16/9; object-fit:cover; background:#111216; border-radius:12px; margin-top:14px; transform:scaleX(-1); }
+#device-mic-level { width:100%; height:18px; accent-color:#71d3a4; }
+@media(max-width:540px) { .device-check-grid { grid-template-columns:1fr; } }
 .game-shell { width:min(1180px,100%); margin:auto; padding:22px 26px 50px; }
 .game-top { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:20px; }
 .room-code { display:flex; align-items:center; gap:10px; border:1px solid #ffffff14; border-radius:12px; padding:9px 12px; background:#1a1921; color:#d4d0dc; font-size:12px; }
@@ -262,6 +274,7 @@ body:has(.discussion-shell) { overflow:hidden; }
 .discussion-chat .chat-box { flex:1; min-height:0; max-height:none; padding:4px 2px; }
 .discussion-chat .chat-form { margin-top:6px; }
 .discussion-tools { display:flex; flex-direction:column; justify-content:center; gap:7px; min-width:0; }
+.discussion-connection-error { flex-basis:100%; color:#f1d5a3; font-size:13px; }
 .discussion-tools .btn { width:100%; padding:10px 12px; }
 .discussion-tools small { color:#918d9b; font-size:10px; text-align:center; }
 .result-splash { min-height:460px; height:100%; display:grid; align-content:center; justify-items:center; text-align:center; animation:result-splash-fade 3s ease both; }
@@ -310,3 +323,6 @@ body:has(.discussion-shell) { overflow:hidden; }
   .discussion-tools .btn { min-height:44px; font-size:13px; padding:9px 8px; }
   .discussion-tools small { grid-column:1/-1; font-size:11px; }
 }
+/* Guidance remains visible without preventing chat-only play. */
+.connection-notice{max-width:1120px;margin:12px auto;padding:14px 18px;border:1px solid #716044;border-radius:12px;background:#28231c;color:#f1e6d2;font-size:14px;line-height:1.6}
+.connection-notice p{margin:4px 0 10px}

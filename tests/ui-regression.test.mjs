@@ -217,6 +217,21 @@ function mobileDiscussion() {
   return {...f,shell,button,input,box,video};
 }
 
+test('merged discussion keeps media recovery inside the fixed mobile shell without duplicate controls',()=>{
+  const appNode={innerHTML:'',insertAdjacentHTML(_,html){this.innerHTML=html+this.innerHTML;}};
+  const f=ui({querySelector:selector=>selector==='#app'?appNode:null,querySelectorAll:()=>[]});
+  f.context.navigator={userAgent:'Mozilla'};
+  vm.runInContext('bindAudio=()=>{};bindVideo=()=>{};bindMediaElements=()=>{};',f.context);
+  f.state.playerId='p0';
+  f.state.room={phase:'discussion',code:'MERGED',players:[],roles:[],chat:[],hostId:'p0'};
+  f.render();
+  assert.equal((appNode.innerHTML.match(/id="retry-media"/g)||[]).length,1);
+  assert.ok(appNode.innerHTML.indexOf('discussion-top-actions')<appNode.innerHTML.indexOf('id="retry-media"'));
+  vm.runInContext("rtcError='연결을 다시 시도해 주세요.';",f.context);f.render();
+  assert.match(appNode.innerHTML,/discussion-connection-error/);
+  assert.match(appNode.innerHTML,/연결을 다시 시도해 주세요/);
+});
+
 test('mobile starts with video, counts hidden incoming messages, and retains draft and history on round trips',()=>{
   const f=mobileDiscussion();f.updateMobileDiscussionControls();
   assert.equal(f.shell.dataset.mobileView,'video');

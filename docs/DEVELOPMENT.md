@@ -35,6 +35,10 @@ node tests/live-multiplayer.mjs
 
 ## 브라우저에서 기능 재현
 
+메인 화면의 **카메라·마이크 연결 점검**에서 각 장치를 연결하고 미리보기·음량 막대를 확인합니다. 초록 체크는 현재 입력 트랙 연결 상태입니다. 방에 들어가거나 페이지를 벗어나면 점검용 장치를 끄며, 토론 단계에서는 기존 미디어 켜기 버튼을 사용합니다.
+
+장치 권한 없이 합성 미디어로 화면을 재현하려면 `node tests/browser/serve-device-check.mjs`를 실행하고 <http://127.0.0.1:4195/>를 여세요. **장치 응답**에서 성공/권한 거부/응답 대기를 선택합니다. 대기 중 연결 취소 후 **대기 응답 허용**, **장치 분리**, **화면** 전환 및 **연결 상태 확인**으로 자원 정리와 안내문 숨김을 확인할 수 있습니다. 자동 응답 제한은 20초입니다. 모바일은 브라우저의 320px·390px 크기 설정 또는 `/mobile?width=320`, `/mobile?width=390`을 사용합니다. 이 검증 서버는 로컬 전용이며 실제 기기 검증을 대신하지 않습니다.
+
 프로젝트 루트에서 아래 중 필요한 서버 하나를 실행하고 주소를 여세요. 각 서버는 실행 창에서 `Ctrl+C`로 종료합니다.
 
 ```powershell
@@ -61,11 +65,11 @@ node tests/browser/serve-camera.mjs .local/archive/camera-vendor/portrait.jpg
 
 ## Git과 배포
 
-저장소는 <https://github.com/KJM0603/werewolf>이며, 정리 시점의 작업 브랜치는 `dev`, 기존 최신 기능 커밋은 `25ee40c`입니다. 변경 사항을 커밋·푸시할 때는 먼저 원격 상태를 확인합니다. 현재 fetch 설정이 dev 전용이므로 main은 명시해서 가져옵니다.
+저장소는 <https://github.com/KJM0603/werewolf>입니다. 변경 사항을 커밋·푸시할 때는 현재 브랜치와 원격 상태를 먼저 확인합니다. 2026-10-21에 `dev`의 모바일 화면·같은 방 재시작·밤 원탁 변경을 하위 경로·TURN·연결 복구가 포함된 `main`에 병합했습니다. 이 작업 폴더의 fetch 설정에도 `main` 추적을 추가했습니다.
 
 ```powershell
 git status
-git fetch origin dev main:refs/remotes/origin/main
+git fetch origin
 git log -5 --oneline
 ```
 
