@@ -5,7 +5,7 @@ import test from 'node:test';
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').split('setInterval(()=>')[0];
 function ui(document={querySelector:()=>null}) {
   const context=vm.createContext({document,setTimeout(){},clearTimeout(){},WebSocket:{OPEN:1}});
-  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,roleCard,bindGameEvents,bindChatEvents,chatPanel,nightPanel,nightTable,selectNightCard,nightSelectionReady,submitNight,render,toggleMobileDiscussion,syncDiscussionViewport,updateMobileDiscussionControls,timerMarkup,updateCountdown,isMyNightTurn,nightTurnOverlay};`,context);
+  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,roleCard,bindGameEvents,bindChatEvents,chatPanel,nightPanel,nightTable,selectNightCard,nightSelectionReady,submitNight,render,toggleMobileDiscussion,syncDiscussionViewport,updateMobileDiscussionControls,timerMarkup,updateCountdown,isMyNightTurn,nightTurnOverlay,playersCard,bindRoomEvents,kickPlayer};`,context);
   return {...context.api,context};
 }
 function result(roles,wins,killed=[]) {
@@ -13,6 +13,27 @@ function result(roles,wins,killed=[]) {
     winners:wins.map((win,i)=>({id:`p${i}`,win})),killed,center:['늑대인간','늑대인간','주민'],
     villageWin:false,wolfTeamWin:false,minionWin:false};
 }
+
+test('lobby host kick controls prevent duplicate sends and recover after errors, timeout and transport failure',()=>{
+  const handlers={},sent=[],timers=[];
+  const buttons=['p1','p2'].map(id=>({dataset:{kickPlayer:id},addEventListener:(_,fn)=>handlers[id]=fn}));
+  const f=ui({querySelector:()=>null,querySelectorAll:selector=>selector==='[data-kick-player]'?buttons:[]});
+  f.context.setTimeout=(fn,ms)=>{const timer={fn,ms};timers.push(timer);return timer;};
+  f.context.clearTimeout=timer=>{if(timer)timer.cancelled=true;};
+  vm.runInContext('render=()=>{};notify=()=>{};saveSession=()=>{};syncPeers=()=>{};syncMediaToPhase=()=>{};',f.context);
+  f.state.playerId='p0';f.state.room={code:'KICK',phase:'lobby',hostId:'p0',roleTarget:6,roles:Array(6).fill('villager'),players:['p0','p1','p2'].map(id=>({id,name:id,ready:true,connected:true}))};
+  f.state.ws={readyState:1,send:raw=>sent.push(JSON.parse(raw))};
+  assert.equal((f.playersCard().match(/data-kick-player=/g)||[]).length,2);assert.doesNotMatch(f.playersCard(),/data-kick-player="p0"/);
+  f.bindRoomEvents();handlers.p1();handlers.p2();assert.deepEqual(sent,[{event:'room:kick',data:{playerId:'p1'}}]);
+  assert.match(f.playersCard(),/강퇴 중…/);assert.match(f.playersCard(),/id="start-game" disabled/);
+  f.handleMessage('error',{message:'retry'});assert.doesNotMatch(f.playersCard(),/강퇴 중…/);handlers.p1();
+  const timeout=timers.findLast(timer=>!timer.cancelled);assert.equal(timeout.ms,8000);timeout.fn();assert.doesNotMatch(f.playersCard(),/강퇴 중…/);
+  f.state.ws.readyState=3;handlers.p1();assert.doesNotMatch(f.playersCard(),/강퇴 중…/);assert.equal(sent.length,2);
+  f.state.ws.readyState=1;handlers.p1();f.handleMessage('room:state',{...f.state.room,players:f.state.room.players.filter(p=>p.id!=='p1')});
+  assert.doesNotMatch(f.playersCard(),/강퇴 중…|data-kick-player="p1"/);
+  f.state.playerId='p2';assert.doesNotMatch(f.playersCard(),/data-kick-player=/);f.kickPlayer('p0');assert.equal(sent.length,3);
+  f.state.playerId='p0';f.state.room.phase='night';assert.doesNotMatch(f.playersCard(),/data-kick-player=/);f.kickPlayer('p2');assert.equal(sent.length,3);
+});
 
 test('result splash and details offer restart for host and exit for every player',()=>{
   const f=ui();f.state.playerId='p0';f.state.room={phase:'result',hostId:'p0',result:result(['villager'],[true])};

@@ -622,6 +622,26 @@ function handle(ws, event, data) {
     return;
   }
 
+  if (event === 'room:kick') {
+    if (room.phase !== 'lobby' || ws.playerId !== room.hostId) return emitError(ws, '대기실 방장만 참가자를 강퇴할 수 있습니다.');
+    if (player.socket !== ws || ws.closed) return emitError(ws, '현재 연결에서 다시 시도해 주세요.');
+    const target = room.players.get(data.playerId);
+    if (!target) return emitError(ws, '이미 나갔거나 찾을 수 없는 참가자입니다.');
+    if (target.id === room.hostId) return emitError(ws, '방장 본인은 강퇴할 수 없습니다.');
+    const targetSocket = target.socket;
+    room.players.delete(target.id);
+    target.socket = null; target.token = null; target.connected = false;
+    if (targetSocket) {
+      targetSocket.room = null; targetSocket.playerId = null;
+      send(targetSocket, 'room:kicked', { message: '방장에 의해 대기방에서 강퇴되었습니다.' });
+    }
+    room.roles = defaultRoles(room.players.size); room.customRoles = false;
+    room.hasTestBots = [...room.players.values()].some(p => p.isBot);
+    broadcast(room, 'room:state', publicRoom(room));
+    broadcast(room, 'room:notice', { message: `${target.name}님을 강퇴했습니다. 인원에 맞춰 권장 역할로 변경했습니다.` });
+    return;
+  }
+
   if (event === 'room:leave') {
     if (!['lobby', 'result'].includes(room.phase)) return emitError(ws, '대기실이나 게임 종료 후에 방을 나갈 수 있습니다.');
     if (player.socket !== ws || ws.closed) return emitError(ws, '현재 연결에서 다시 시도해 주세요.');

@@ -88,6 +88,23 @@ for (const base of ['', '/game-werewolf261020', '/games/wolf']) {
   });
 }
 
+test('real lobby kick updates all clients and rejects the removed reconnect token', { timeout: 10000 }, async t => {
+  const port=await start(t);
+  const host=await client(t,port,'/signal');host.send('room:create',{name:'Host'});const owner=await host.receive('room:joined');
+  const guest=await client(t,port,'/signal');guest.send('room:join',{code:owner.room.code,name:'Guest'});const removed=await guest.receive('room:joined');
+  const observer=await client(t,port,'/signal');observer.send('room:join',{code:owner.room.code,name:'Observer'});await observer.receive('room:joined');
+  for(const ws of [host,observer]){let room;do{room=await ws.receive('room:state');}while(room.players.length!==3);}
+  guest.send('room:kick',{playerId:owner.playerId});assert.match((await guest.receive('error')).message,/방장/);
+  host.send('room:kick',{playerId:removed.playerId});assert.match((await guest.receive('room:kicked')).message,/강퇴/);
+  for(const ws of [host,observer]){
+    const room=await ws.receive('room:state');assert.equal(room.players.length,2);assert.equal(room.roles.length,5);
+    assert.ok(!room.players.some(p=>p.id===removed.playerId));assert.equal(room.hostId,owner.playerId);
+  }
+  const reconnect=await client(t,port,'/signal');reconnect.send('room:reconnect',{code:owner.room.code,token:removed.token});
+  assert.match((await reconnect.receive('error')).message,/재접속/);
+  guest.send('chat:send',{text:'should not reach room'});assert.match((await guest.receive('error')).message,/입장/);
+});
+
 test('real signaling returns only temporary coturn credentials to joined players', { timeout: 10000 }, async t => {
   const port = await start(t, { TURN_PROVIDER: 'coturn', TURN_URLS: 'turn:example.test:3478', TURN_SHARED_SECRET: 'test-only-secret', ICE_TRANSPORT_POLICY: 'relay' });
   const ws = await client(t, port, '/signal');

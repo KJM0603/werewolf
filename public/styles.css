@@ -65,6 +65,16 @@ h1 { font-size:clamp(38px, 7vw, 66px); letter-spacing:-.065em; line-height:1.08;
 .section-copy { color:#96939f; margin:0 0 22px; font-size:13px; line-height:1.65; }
 .player-list { display:grid; gap:8px; }
 .player-row { display:flex; align-items:center; justify-content:space-between; border:1px solid #ffffff0e; background:#15151b; border-radius:12px; padding:11px 13px; }
+.lobby-player-row { gap:10px; }
+.lobby-player-row .player-name { flex:1; min-width:0; }
+.lobby-player-row .player-name>span:last-child { min-width:0; overflow-wrap:anywhere; }
+.lobby-player-row .avatar { flex:none; }
+.player-controls { display:flex; align-items:center; justify-content:flex-end; gap:8px; flex:none; }
+.kick-player.btn { min-height:44px; padding:9px 10px; color:#ffb0bb; border-color:#a45b6b55; }
+@media(max-width:540px) {
+  .lobby-player-row .avatar { display:none; }
+  .lobby-player-row .player-controls { flex-direction:column; align-items:flex-end; gap:4px; }
+}
 .player-name { display:flex; align-items:center; gap:10px; font-size:13px; }
 .avatar { width:30px; height:30px; display:grid; place-items:center; border-radius:10px; background:#302b3b; color:#d4c6fb; font-size:13px; font-weight:700; }
 .player-badge { color:#8e8b97; font-size:10px; }
@@ -152,7 +162,7 @@ body:has(.night-shell) { min-width:0; }
 .table-card-back>span { font-size:32px; line-height:1.2; }
 .table-card-back small { margin-top:5px; font-size:7px; letter-spacing:.12em; }
 .table-card:not(:disabled) { border-color:#d3b3ff; box-shadow:0 0 0 2px #aa91ee30,0 0 20px #ae83f329,0 6px 12px #0005; }
-.table-card:not(:disabled):not(.selected) { animation:night-card-glow 2.2s ease-in-out infinite alternate; }
+button.table-card:not(:disabled):not(.selected) { animation:night-card-glow 2.2s ease-in-out infinite alternate; }
 .table-card:not(:disabled):hover { transform:translateY(-5px); box-shadow:0 0 24px #b79aef77; }
 .table-card:focus-visible { outline:3px solid #e7d5ff; outline-offset:5px; }
 .table-card.selected { transform:translateY(-7px); border:2px solid #edce91; box-shadow:0 0 0 3px #edce9144,0 0 28px #edce9177; }

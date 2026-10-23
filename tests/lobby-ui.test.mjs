@@ -28,7 +28,7 @@ function fixture() {
   const api=context.api;
   api.connect();api.state.room={code:'OLD',phase:'lobby'};
   api.state.playerId='p0';api.state.sessionToken='secret';
-  return {...api,sockets,timers,storage,button};
+  return {...api,sockets,timers,storage,button,context};
 }
 test('leave waits for acknowledgement then clears session, media, and room state',()=>{
   const f=fixture();let stopped=0,closed=0;
@@ -55,6 +55,16 @@ test('disconnected leave returns home and stale reconnect timers or messages can
   old.handlers.message({data:JSON.stringify({event:'room:state',data:{code:'OLD'}})});
   old.handlers.close();
   assert.equal(f.sockets.length,2);assert.equal(f.state.ws,current);assert.equal(f.state.room,null);
+});
+
+test('kicked client clears saved membership and returns home without replaying stale events or reconnecting',()=>{
+  const f=fixture(),old=f.sockets[0];let notice='';f.context.notice=text=>notice=text;
+  vm.runInContext('notify=notice;',f.context);
+  old.handlers.message({data:JSON.stringify({event:'room:kicked',data:{message:'강퇴 안내'}})});
+  assert.equal(f.state.room,null);assert.equal(f.state.playerId,null);assert.equal(f.state.sessionToken,null);
+  assert.equal(f.state.ws,null);assert.equal(f.storage.size,0);assert.equal(f.timers.length,0);assert.equal(notice,'강퇴 안내');
+  old.handlers.message({data:JSON.stringify({event:'room:state',data:{code:'OLD'}})});old.handlers.close();
+  assert.equal(f.state.room,null);assert.equal(f.timers.length,0);
 });
 test('connection loss while leaving returns home without automatically rejoining',()=>{
   const f=fixture();f.leaveLobby();f.sockets[0].close();

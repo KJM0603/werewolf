@@ -192,6 +192,49 @@ test('lobby leave removes membership and reconnect token, resizes roles, and per
   assert.equal(ws.messages.at(-1).data.hostId,ws.playerId);
   assert.notEqual(ws.room,'AUDIT');
 });
+test('host kicks a lobby guest, invalidates its session, and keeps the remaining room usable',()=>{
+  const f=fixture(['villager','seer','robber','drunk']);f.room.phase='lobby';f.room.customRoles=true;
+  const target=f.room.players.get('p1'),ws=target.socket,host=f.room.players.get('p0').socket;
+  f.handle(host,'room:kick',{playerId:'p1'});
+  assert.equal(f.room.players.has('p1'),false);assert.equal(f.room.hostId,'p0');
+  assert.equal(target.token,null);assert.equal(target.socket,null);assert.equal(ws.room,null);assert.equal(ws.playerId,null);
+  assert.equal(ws.messages.at(-1).event,'room:kicked');assert.equal(f.reconnect('p1').at(-1).event,'error');
+  assert.equal(f.room.roles.length,6);assert.equal(f.room.customRoles,false);
+  for(const id of ['p0','p2','p3'])assert.equal(f.messages(id).findLast(m=>m.event==='room:state').data.players.length,3);
+  const received=ws.messages.length;f.handle(host,'chat:send',{text:'남은 참가자 대화'});assert.equal(ws.messages.length,received);
+  f.handle(host,'game:start',{});assert.equal(f.room.phase,'role_reveal');
+});
+
+test('lobby kick rejects nonhosts, self, missing or foreign targets, and obsolete connections',()=>{
+  const f=fixture(['villager','seer','robber']);f.room.phase='lobby';
+  const host=f.room.players.get('p0').socket,guest=f.room.players.get('p1').socket;
+  for(const [ws,playerId] of [[guest,'p2'],[host,'p0'],[host,'not-in-this-room'],[host,undefined]]){
+    f.handle(ws,'room:kick',{playerId});assert.equal(ws.messages.at(-1).event,'error');assert.equal(f.room.players.size,3);
+  }
+  f.room.players.get('p0').socket={};f.handle(host,'room:kick',{playerId:'p1'});
+  assert.equal(host.messages.at(-1).event,'error');assert.equal(f.room.players.size,3);
+  f.room.players.get('p0').socket=host;host.closed=true;f.handle(host,'room:kick',{playerId:'p1'});
+  assert.equal(f.room.players.size,3);
+});
+
+test('kick cannot remove anyone once a game has started, paused, or ended',()=>{
+  for(const phase of ['role_reveal','night','discussion','voting','vote_reveal','paused','result']){
+    const f=fixture(['villager','seer','robber']);f.room.phase=phase;
+    const host=f.room.players.get('p0').socket;f.handle(host,'room:kick',{playerId:'p1'});
+    assert.equal(host.messages.at(-1).event,'error');assert.equal(f.room.players.size,3);
+  }
+});
+
+test('host can remove an offline guest or AI and clears the last AI flag',()=>{
+  const f=fixture(['villager','seer','robber']);f.room.phase='lobby';
+  const guest=f.room.players.get('p1');guest.socket=null;guest.connected=false;
+  f.room.players.get('p2').isBot=true;f.room.players.get('p2').socket=null;f.room.hasTestBots=true;
+  const host=f.room.players.get('p0').socket;
+  f.handle(host,'room:kick',{playerId:'p1'});assert.equal(f.reconnect('p1').at(-1).event,'error');assert.equal(f.room.hasTestBots,true);
+  f.handle(host,'room:kick',{playerId:'p2'});assert.equal(f.room.players.size,1);assert.equal(f.room.roles.length,4);assert.equal(f.room.hasTestBots,false);
+  f.handle(host,'room:kick',{playerId:'p2'});assert.equal(host.messages.at(-1).event,'error');assert.equal(f.room.players.size,1);
+});
+
 test('host leave transfers control to a connected human ahead of bots or disconnected humans',()=>{
   const f=fixture(Array(4).fill('villager'));f.room.phase='lobby';
   f.room.players.get('p1').isBot=true;f.room.players.get('p2').connected=false;

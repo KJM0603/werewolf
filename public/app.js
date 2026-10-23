@@ -14,6 +14,8 @@ let reconnecting = false;
 let leavingRoom = false;
 let restartingRoom = false;
 let roomRequestTimer = null;
+let kickingPlayerId = null;
+let kickRequestTimer = null;
 let chatHeight = 280;
 let micPending = false;
 let playbackBlocked = false;
@@ -190,8 +192,16 @@ function connect(onReady) {
 function send(event,data={}) { if (!state.ws || state.ws.readyState!==WebSocket.OPEN) { notify('서버와 연결이 끊겼습니다. 잠시 후 다시 시도해 주세요.'); return false; } state.ws.send(JSON.stringify({event,data})); return true; }
 function rejoin() { const saved=JSON.parse(localStorage.getItem('one-night-session')||'null'); if(saved){reconnecting=true;send('room:reconnect',saved);} }
 function clearRoomRequestTimer() { clearTimeout(roomRequestTimer);roomRequestTimer=null; }
+function clearKickRequest() { clearTimeout(kickRequestTimer);kickRequestTimer=null;kickingPlayerId=null; }
+function kickPlayer(playerId) {
+  if(state.room?.phase!=='lobby'||!hostView()||kickingPlayerId||playerId===state.playerId||!state.room.players.some(p=>p.id===playerId))return;
+  kickingPlayerId=playerId;
+  kickRequestTimer=setTimeout(()=>{clearKickRequest();render();notify('강퇴 응답이 지연되고 있습니다. 참가자 목록을 확인한 뒤 다시 시도해 주세요.');},8000);
+  render();
+  if(!send('room:kick',{playerId})){clearKickRequest();render();}
+}
 function waitForRoomRequest(kind) {
-  clearRoomRequestTimer();
+  clearRoomRequestTimer();clearKickRequest();
   roomRequestTimer=setTimeout(()=>{
     roomRequestTimer=null;
     if(kind==='leave'&&leavingRoom)return returnToHome();
@@ -203,7 +213,7 @@ function waitForRoomRequest(kind) {
 }
 function returnToHome() {
   finishIceConfig(null, '방에서 나갔습니다.');rtcConfig=null;rtcError='';reconnectAttempt=0;
-  clearRoomRequestTimer();
+  clearRoomRequestTimer();clearKickRequest();
   localStorage.removeItem('one-night-session');
   const ws=state.ws;state.ws=null;
   ws?.close();
@@ -254,13 +264,15 @@ function handleMessage(event,data) {
   if(event==='error'&&reconnecting&&data.message==='재접속 정보를 찾을 수 없습니다.'){returnToHome();notify('이전 방이 종료되어 첫 화면으로 돌아왔습니다. 새 방을 만들어 주세요.');return;}
   if(event==='room:joined')reconnecting=false;
   if(event==='room:left'){returnToHome();return;}
+  if(event==='room:kicked'){returnToHome();notify(data.message||'방장에 의해 대기방에서 강퇴되었습니다.');return;}
   if(event==='room:notice'){notify(data.message);return;}
   if(event==='error'&&leavingRoom){returnToHome();return;}
-  if(event==='error'){clearRoomRequestTimer();leavingRoom=false;restartingRoom=false;nightActionPending=false;state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
-  if(event==='room:joined') { reconnectAttempt=0;clearRoomRequestTimer();restartingRoom=false;resetMobileDiscussion();resetNightTurnCues();nightActionPending=false;nightTableFeedback=null;state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncMediaToPhase();syncPeers();render();return; }
+  if(event==='error'){clearRoomRequestTimer();clearKickRequest();leavingRoom=false;restartingRoom=false;nightActionPending=false;state.rolesPending=false;if(state.room)render();notify(data.message||'요청을 처리하지 못했습니다.');return;}
+  if(event==='room:joined') { reconnectAttempt=0;clearRoomRequestTimer();clearKickRequest();restartingRoom=false;resetMobileDiscussion();resetNightTurnCues();nightActionPending=false;nightTableFeedback=null;state.room=data.room;state.chat=data.room.chat||[];state.playerId=data.playerId;state.sessionToken=data.token;state.isHost=data.isHost;state.privateResults=[];state.privateRole=null;state.prompt=null;saveSession();state.error='';syncMediaToPhase();syncPeers();render();return; }
   if(event==='room:state'||event==='game:phase'||event==='game:resumed'||event==='game:paused') {
     const votingProgressOnly=event==='room:state'&&isVotingProgressUpdate(state.room,data)&&document.querySelector('#vote-submissions');
     const previous=state.room?.phase;const previousNightTurn=state.room?.nightTurn;state.room=data;if(Array.isArray(data.chat))state.chat=data.chat;state.rolesPending=false;state.isHost=state.playerId===data.hostId;saveSession();syncPeers();
+    if(kickingPlayerId&&(data.phase!=='lobby'||data.hostId!==state.playerId||!data.players?.some(p=>p.id===kickingPlayerId)))clearKickRequest();
     if(data.phase==='lobby') {
       clearRoomRequestTimer();
       restartingRoom=false;nightActionPending=false;nightTableFeedback=null;resetNightTurnCues();
@@ -416,10 +428,15 @@ function roleEditor() {
 
 function playersCard() {
   const room=state.room;
+  const canKick=hostView()&&room.phase==='lobby';
   const canAddBots=hostView()&&room.players.length<10;
   const available=10-room.players.length;
   const botControls=canAddBots?`<div class="room-actions"><label for="bot-count">추가할 AI 인원</label><select class="input" id="bot-count">${Array.from({length:available},(_,i)=>`<option value="${i+1}" ${i+1===Math.min(3,available)?'selected':''}>${i+1}명</option>`).join('')}</select><button class="btn ghost" id="add-ai">AI 추가</button></div>`:'';
-  return `<section class="panel"><div class="section-kicker">LOBBY · ${room.players.length}/10</div><h2 class="section-title" style="font-size:18px">플레이어</h2><div class="player-list">${room.players.map((p)=>`<div class="player-row"><div class="player-name"><span class="avatar">${esc(p.name.slice(0,1))}</span><span>${esc(p.name)} ${p.id===room.hostId?'<span class="player-badge">방장</span>':''} ${p.isBot?'<span class="player-badge bot-badge">AI</span>':''}</span></div><span class="player-badge ${!p.connected?'offline':p.ready?'ready':''}">${!p.connected?'연결 끊김':p.isBot?'자동 플레이':p.id===room.hostId?'준비 완료':p.ready?'준비 완료':'대기 중'}</span></div>`).join('')}</div>${botControls}<div class="room-actions">${!hostView()?`<button class="btn ${room.players.find(p=>p.id===state.playerId)?.ready?'ghost':''}" id="ready-toggle">${room.players.find(p=>p.id===state.playerId)?.ready?'준비 취소':'준비하기'}</button>`:`<button class="btn" id="start-game" ${room.players.length<3||room.players.some(p=>p.id!==room.hostId&&!p.ready)||room.roles.length!==room.roleTarget?'disabled':''}>게임 시작하기</button>`}</div>${room.players.length<3?'<p class="role-help">게임을 시작하려면 최소 3명이 필요합니다.</p>':''}${room.hasTestBots?'<p class="role-help">총 10명까지 AI를 여러 번 추가할 수 있습니다. 밤 건너뛰기는 AI 행동을 완료한 뒤 토론으로 이동합니다. 미제출한 사람의 행동·투표는 건너뜁니다.</p>':''}</section>`;
+  const players=room.players.map(p=>{
+    const kick=canKick&&p.id!==room.hostId?`<button type="button" class="btn ghost small kick-player" data-kick-player="${esc(p.id)}" aria-label="${esc(p.name)}님 강퇴" ${kickingPlayerId?'disabled':''}>${kickingPlayerId===p.id?'강퇴 중…':'강퇴'}</button>`:'';
+    return `<div class="player-row lobby-player-row"><div class="player-name"><span class="avatar">${esc(p.name.slice(0,1))}</span><span>${esc(p.name)} ${p.id===room.hostId?'<span class="player-badge">방장</span>':''} ${p.isBot?'<span class="player-badge bot-badge">AI</span>':''}</span></div><div class="player-controls"><span class="player-badge ${!p.connected?'offline':p.ready?'ready':''}">${!p.connected?'연결 끊김':p.isBot?'자동 플레이':p.id===room.hostId?'준비 완료':p.ready?'준비 완료':'대기 중'}</span>${kick}</div></div>`;
+  }).join('');
+  return `<section class="panel"><div class="section-kicker">LOBBY · ${room.players.length}/10</div><h2 class="section-title" style="font-size:18px">플레이어</h2><div class="player-list">${players}</div>${botControls}<div class="room-actions">${!hostView()?`<button class="btn ${room.players.find(p=>p.id===state.playerId)?.ready?'ghost':''}" id="ready-toggle">${room.players.find(p=>p.id===state.playerId)?.ready?'준비 취소':'준비하기'}</button>`:`<button class="btn" id="start-game" ${kickingPlayerId||room.players.length<3||room.players.some(p=>p.id!==room.hostId&&!p.ready)||room.roles.length!==room.roleTarget?'disabled':''}>게임 시작하기</button>`}</div>${room.players.length<3?'<p class="role-help">게임을 시작하려면 최소 3명이 필요합니다.</p>':''}${room.hasTestBots?'<p class="role-help">총 10명까지 AI를 여러 번 추가할 수 있습니다. 밤 건너뛰기는 AI 행동을 완료한 뒤 토론으로 이동합니다. 미제출한 사람의 행동·투표는 건너뜁니다.</p>':''}</section>`;
 }
 
 function countdownText(seconds,secondsOnly=false) {
@@ -704,6 +721,7 @@ function render() {
   syncDiscussionViewport();
 }
 function bindRoomEvents() {
+  document.querySelectorAll('[data-kick-player]').forEach(button=>button.addEventListener('click',()=>kickPlayer(button.dataset.kickPlayer)));
   document.querySelector('#leave-lobby')?.addEventListener('click',leaveRoom);
   document.querySelector('#home-button')?.addEventListener('click',leaveRoom);
   document.querySelector('#copy-code')?.addEventListener('click',copyCode);
