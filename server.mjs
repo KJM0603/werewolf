@@ -785,7 +785,8 @@ const server = createServer((req, res) => {
   catch { res.writeHead(400); res.end('Bad request'); return; }
   if (BASE_PATH && rawPath === BASE_PATH) { res.writeHead(301, { Location: BASE_PATH + '/' + search }); res.end(); return; }
   const pathname = stripBase(rawPath);
-  const requested = pathname === '/' ? '/index.html' : pathname;
+  if (pathname === '/guide') { res.writeHead(301, { Location: BASE_PATH + '/guide/' + search }); res.end(); return; }
+  const requested = pathname === '/' ? '/index.html' : pathname === '/guide/' ? '/guide/index.html' : pathname;
   const file = normalize(join(ROOT, requested));
   if (!file.startsWith(ROOT + sep) || !existsSync(file) || !statSync(file).isFile()) { res.writeHead(404); res.end('Not found'); return; }
   const types = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.wasm': 'application/wasm' };

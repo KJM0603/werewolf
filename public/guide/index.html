@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>설명서 · 한밤의 늑대인간</title>
+  <link rel="stylesheet" href="guide.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 바로가기</a>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="../" aria-label="한밤의 늑대인간 게임으로 돌아가기">☾ ONE NIGHT <span>· 설명서</span></a>
+      <a class="button" href="../">게임으로 돌아가기</a>
+    </header>
+    <main id="main">
+      <section class="hero" aria-labelledby="title">
+        <p class="eyebrow">한 번의 밤, 한 번의 추리</p>
+        <h1 id="title">한밤의<br>늑대인간 설명서</h1>
+        <p class="lead">밤에는 비밀리에 카드를 확인하거나 바꾸고, 낮에는 대화와 투표로 늑대인간을 찾습니다.</p>
+        <ul class="badges" aria-label="게임 정보"><li>3~10명</li><li>약 12분 · 연장 제외</li><li>휴대폰 · PC</li></ul>
+        <aside class="callout"><strong>처음 역할과 최종 역할은 다를 수 있습니다.</strong><p>밤 행동은 처음 받은 역할과 도플갱어가 복사한 역할에 따라 진행합니다. 승패는 밤의 모든 교환이 끝난 뒤, 내 자리에 남은 <strong>최종 역할</strong>로 정합니다.</p></aside>
+      </section>
+
+      <nav class="contents" aria-label="설명서 목차">
+        <a href="#start">시작하기</a><a href="#flow">한 판 흐름</a><a href="#night">밤 조작</a><a href="#roles">역할별 행동</a><a href="#discussion">토론</a><a href="#vote">투표</a><a href="#win">승리 조건</a><a href="#trouble">문제 해결</a>
+      </nav>
+
+      <section id="start" class="panel" aria-labelledby="start-title">
+        <p class="eyebrow">시작하기</p><h2 id="start-title">주소 열고, 코드로 모이기</h2>
+        <ol class="steps">
+          <li><strong>같은 게임 주소를 엽니다.</strong> 배포 사이트가 접속 비밀번호를 요구하면 따로 전달받은 비밀번호를 입력해 주세요. 카카오톡에서 받은 링크는 Safari·Chrome 같은 외부 브라우저로 여시는 편이 좋습니다.</li>
+          <li><strong>방장은 방 만들기 → 6자리 코드 공유.</strong> 참가자는 닉네임과 코드를 입력해 참가한 뒤 <strong>준비하기</strong>를 누릅니다.</li>
+          <li><strong>사람과 AI를 합쳐 3~10명으로 시작합니다.</strong> 방장은 다른 사람의 준비가 끝나고 카드 수가 맞으면 <strong>게임 시작하기</strong>를 누릅니다.</li>
+        </ol>
+        <p>역할 카드는 <strong>참가자 수 + 3장</strong>입니다. 각자 무작위로 한 장씩 받고, 남은 세 장은 중앙에 놓입니다. 어떤 역할을 넣었는지는 모두 알지만, 누구에게 갔는지는 비밀입니다.</p>
+        <p>첫 화면의 <strong>카메라·마이크 연결 점검</strong>에서 내 영상과 입력 음량을 확인할 수 있습니다. 방에 들어가면 점검이 종료됩니다. 토론에서는 마이크·카메라를 다시 직접 켜 주세요. 음성 없이 채팅으로만 참여해도 됩니다.</p>
+        <details><summary>방장의 역할 구성과 참가자 관리</summary>
+          <p>역할 카드의 +·−로 구성을 바꿀 수 있습니다. 늑대인간은 최대 2장, 주민은 최대 3장, 프리메이슨은 2장 한 쌍, 나머지는 역할마다 최대 1장입니다. 주민은 권장 구성에 없지만 수동으로 넣을 수 있습니다.</p>
+          <p><strong>권장 역할로 다시 구성</strong>을 누르면 현재 인원에 맞는 구성을 적용합니다. 아래는 권장 구성이며 필수 조합은 아닙니다.</p>
+          <dl class="compact-list">
+            <dt>3명 · 6장</dt><dd>늑대인간, 예언자, 강도, 말썽쟁이, 주정뱅이, 불면증 환자</dd>
+            <dt>4~8명</dt><dd>한 명 늘 때마다 무두장이 → 두 번째 늑대인간 → 사냥꾼 → 하수인 → 도플갱어 순으로 추가</dd>
+            <dt>9명 · 12장</dt><dd>8명 구성에서 도플갱어를 빼고 프리메이슨 2장 추가</dd>
+            <dt>10명 · 13장</dt><dd>9명 구성에 도플갱어 추가</dd>
+          </dl>
+          <p>대기실에서만 방장이 다른 사람이나 AI를 <strong>강퇴</strong>할 수 있습니다. 남은 인원에 맞춰 역할이 권장 구성으로 바뀝니다. 강퇴된 사람의 자동 재접속 정보는 지워지며, 코드로 직접 새로 참가할 수는 있습니다.</p>
+        </details>
+      </section>
+
+      <section id="flow" class="panel" aria-labelledby="flow-title">
+        <p class="eyebrow">한 판 흐름</p><h2 id="flow-title">다섯 단계, 약 12분</h2>
+        <ol class="timeline"><li><strong>역할 확인</strong><span>5초</span></li><li><strong>밤 행동</strong><span>차례마다 5~16초</span></li><li><strong>토론</strong><span>기본 10분</span></li><li><strong>비밀 투표</strong><span>최대 20초</span></li><li><strong>결과 공개</strong><span>투표 종료 5초 뒤</span></li></ol>
+        <p>선택한 역할 구성에 따라 밤 길이가 달라집니다. 토론 연장이나 과반 동의로 전체 시간도 달라집니다. 투표와 사망·승리 판정은 앱이 처리합니다.</p>
+      </section>
+
+      <section id="night" class="panel" aria-labelledby="night-title">
+        <p class="eyebrow">밤에 할 일</p><h2 id="night-title">내 차례에 카드를 선택하고 제출하기</h2>
+        <ol class="steps">
+          <li><strong>처음 받은 역할을 혼자 확인합니다.</strong> 역할 확인 화면에서 카드를 가렸다가 다시 볼 수 있습니다.</li>
+          <li><strong>내 차례가 오면 안내와 빛나는 카드를 확인합니다.</strong> 원탁 중앙 카드 아래에 현재 역할과 남은 초가 표시됩니다. 불면증 환자는 확대 카드 위에 시간이 표시됩니다.</li>
+          <li><strong>대상 카드를 누른 뒤 화면의 확인·교환 버튼을 누릅니다.</strong> 선택만 해서는 적용되지 않습니다. 선택한 카드를 다시 누르면 취소됩니다. 예언자의 중앙 카드는 서로 다른 두 장을 선택합니다.</li>
+        </ol>
+        <aside class="callout"><strong>불면증 환자는 확대된 자기 카드를 직접 눌러 확인합니다.</strong><p>늑대인간·하수인·프리메이슨의 동료 정보는 본인 화면에 자동으로 표시됩니다. 혼자 깨어난 늑대인간의 중앙 카드 확인은 직접 선택·제출해야 합니다.</p></aside>
+        <p>오류가 나오면 시간이 남아 있을 때 다시 제출해 주세요. 시간이 끝날 때까지 제출하지 않은 확인·교환은 적용되지 않습니다. 이미 성공한 행동은 유지되며 취소하거나 다시 할 수 없습니다.</p>
+        <p>카드를 교환받았다고 그 새 역할의 밤 행동을 추가로 하지는 않습니다. 처음 역할과 확인한 정보가 계속 화면에 남더라도, 이후 누군가 카드를 바꿨다면 최종 역할과 다를 수 있습니다.</p>
+        <details><summary>왜 아무도 행동하지 않는 차례도 기다리나요?</summary>
+          <p>구성에 넣은 역할은 중앙에만 있어도 같은 시간 동안 안내합니다. 행동을 일찍 마쳐도 차례의 남은 시간은 유지됩니다. 타이머만 보고 누가 어떤 역할인지 알아내지 못하게 하기 위해서입니다.</p>
+          <p>도플갱어와 불면증 환자 카드가 모두 구성에 있으면 밤 맨 마지막에 <strong>도플갱어 · 불면증 환자</strong> 차례가 5초 추가됩니다. 실제 복사 여부나 중앙 배치와 관계없이 기다리며, 실제로 불면증을 복사한 사람만 자기 카드를 확인할 수 있습니다.</p>
+        </details>
+      </section>
+
+      <section id="roles" class="panel" aria-labelledby="roles-title">
+        <p class="eyebrow">역할별 행동</p><h2 id="roles-title">밤 순서와 열두 가지 역할</h2>
+        <p>아래 순서로 진행하며, 구성에 없는 역할은 건너뜁니다. 마을 편은 예언자·강도·말썽쟁이·주정뱅이·불면증 환자·프리메이슨·사냥꾼·주민입니다.</p>
+        <div class="role-grid">
+          <article class="role" id="role-doppelganger"><h3>👥 도플갱어 <span>16초</span></h3><p>다른 한 명의 카드를 보고 그 역할을 복사합니다. 상대 카드를 가져오거나 상대 역할을 바꾸는 행동은 아닙니다. 복사한 역할에 따라 아래와 같이 행동합니다.</p>
+            <ul><li><strong>예언자·강도·말썽쟁이·주정뱅이:</strong> 복사 직후 능력을 사용합니다. 복사 선택과 후속 행동은 <strong>같은 16초</strong> 안에 마쳐야 합니다. 일반 역할 차례에 다시 행동하지 않습니다.</li><li><strong>늑대인간·프리메이슨:</strong> 해당 역할 차례에 함께 깨어납니다.</li><li><strong>하수인:</strong> 복사 직후 늑대인간 위치를 확인합니다. 일반 하수인 차례에는 다시 깨어나지 않습니다. 하수인끼리 서로 확인하는 절차는 없습니다.</li><li><strong>불면증 환자:</strong> 일반 불면증 차례가 끝난 뒤 마지막 별도 5초에 자기 카드를 누릅니다.</li><li><strong>주민·무두장이·사냥꾼:</strong> 추가 밤 행동은 없습니다.</li></ul>
+            <p>복사 정보는 도플갱어 카드에 붙습니다. 그 카드가 내 자리에 남으면 복사한 역할로 승패를 정하고, 교환되면 각자 최종으로 가진 카드에 따라 승패를 정합니다. 시간 안에 복사하지 못해 복사 정보가 없는 도플갱어 카드로 끝나면, 현재 앱에서는 마을 편의 승리 조건을 따릅니다.</p>
+          </article>
+          <article class="role" id="role-werewolf"><h3>🐺 늑대인간 <span>5초</span></h3><p>함께 깨어난 늑대인간을 서로 확인합니다. 늑대인간을 복사한 도플갱어도 포함합니다. <strong>혼자 깨어났을 때만</strong> 중앙 카드 세 장 중 한 장을 선택해 확인할 수 있습니다. 하수인은 확인하지 못합니다.</p></article>
+          <article class="role" id="role-minion"><h3>🕴️ 하수인 <span>5초</span></h3><p>밤에 깨어나는 늑대인간의 위치를 혼자 확인합니다. 늑대인간은 하수인을 모릅니다. 중앙의 늑대 카드는 보여 주지 않습니다. 늑대인간이 없어도 마을 편이 되는 것은 아니며, 별도의 승리 조건이 있습니다.</p></article>
+          <article class="role" id="role-mason"><h3>🤝 프리메이슨 <span>5초</span></h3><p>함께 깨어난 프리메이슨을 확인합니다. 프리메이슨을 복사한 도플갱어도 포함합니다. 혼자라면 다른 프리메이슨 카드가 중앙에 있다는 단서가 됩니다. 마을 편입니다.</p></article>
+          <article class="role" id="role-seer"><h3>🔮 예언자 <span>10초</span></h3><p>자신을 제외한 <strong>플레이어 한 명의 카드</strong> 또는 <strong>중앙 카드 두 장</strong> 중 하나를 골라 봅니다. 두 방법을 모두 사용할 수는 없습니다.</p></article>
+          <article class="role" id="role-robber"><h3>🦝 강도 <span>10초</span></h3><p>다른 한 명과 자기 카드를 바꾸고 새로 받은 카드를 확인합니다. 새 역할의 밤 능력은 추가로 쓰지 않습니다. 이후 다른 교환으로 내 카드가 또 바뀔 수 있습니다.</p></article>
+          <article class="role" id="role-troublemaker"><h3>🃏 말썽쟁이 <span>10초</span></h3><p>자신을 제외한 서로 다른 두 사람의 카드를 맞바꿉니다. 두 카드의 앞면은 볼 수 없으며, 자기 카드는 바꾸지 않습니다.</p></article>
+          <article class="role" id="role-drunk"><h3>🍺 주정뱅이 <span>8초</span></h3><p>중앙 카드 한 장과 자기 카드를 맞바꿉니다. 새 카드의 앞면은 볼 수 없습니다. 최종 역할이 늑대인간 등으로 바뀔 수 있으므로 토론에서 교환 정보를 추리해야 합니다.</p></article>
+          <article class="role" id="role-insomniac"><h3>🌙 불면증 환자 <span>5초</span></h3><p>다른 일반 역할의 행동이 끝난 뒤 확대된 자기 카드를 직접 눌러 현재 역할을 확인합니다. 자동으로 앞면이 열리는 것이 아니므로 시간 안에 눌러 주세요. 불면증을 복사한 도플갱어의 확인은 그다음 별도 5초에 진행됩니다.</p></article>
+          <article class="role" id="role-villager"><h3>🧑‍🌾 주민 <span>밤 행동 없음</span></h3><p>밤에 확인하거나 교환하는 능력은 없습니다. 최종 역할이 주민이면 마을 편입니다. 밤에 다른 역할로 바뀔 수 있습니다.</p></article>
+          <article class="role" id="role-tanner"><h3>🪓 무두장이 <span>밤 행동 없음</span></h3><p>마을 편도 늑대인간 편도 아닙니다. <strong>자신이 처치되면</strong> 승리합니다. 사냥꾼의 능력으로 처치되어도 승리합니다. 살아남으면 패배합니다.</p></article>
+          <article class="role" id="role-hunter"><h3>🏹 사냥꾼 <span>밤 행동 없음</span></h3><p>마을 편입니다. <strong>최종 역할이 사냥꾼</strong>인 사람이 2표 이상 최다 득표로 처치되면, 자신이 제출한 투표 대상도 자동으로 처치됩니다. 동점 최다 득표도 포함합니다. 미투표면 추가 대상이 없으며 별도 능력 버튼은 없습니다.</p></article>
+        </div>
+        <p class="muted">늑대인간·프리메이슨의 동료 표시는 밤에 함께 깨어난 역할을 뜻합니다. 앞선 교환이나 이후 교환까지 반영한 최종 카드 공개는 아닙니다. 예언자·강도·불면증 환자가 도플갱어 카드를 확인하면 카드 이름은 보이지만, 그 카드가 복사한 역할까지 알려 주지는 않습니다.</p>
+      </section>
+
+      <section id="discussion" class="panel" aria-labelledby="discussion-title">
+        <p class="eyebrow">토론과 미디어</p><h2 id="discussion-title">정보를 모으되, 거짓말도 전략입니다</h2>
+        <ul><li>기본 토론은 <strong>10분</strong>입니다. 각자 <strong>토론 1분 연장</strong>을 한 판에 한 번 사용할 수 있습니다.</li><li><strong>토론 종료 동의</strong>에 사람 참가자의 과반이 동의하면 즉시 투표로 이동합니다. 사람 3명이면 2명, 4명이면 3명이 필요합니다. 과반이 되기 전에는 취소할 수 있습니다. 모바일에서는 <strong>종료 동의</strong>로 표시됩니다.</li><li>AI는 동의 인원과 기준에서 제외합니다. 접속이 끊긴 사람은 기준 인원에 계속 포함되고 기존 동의도 유지됩니다.</li><li>마이크·카메라는 직접 켭니다. 카메라는 배경을 가린 뒤 전송하며, 배경 가림을 준비하지 못하면 켜지지 않습니다.</li><li>휴대폰의 <strong>채팅</strong> 버튼으로 영상 화면과 채팅 화면을 전환합니다. 대기실·토론·투표에서 채팅할 수 있습니다.</li></ul>
+        <details><summary>연결이 끊겼을 때와 방장 일시정지</summary><p>연결이 끊겨도 게임은 자동으로 멈추지 않습니다. 방장은 접속이 끊긴 사람이 있을 때 표시되는 <strong>게임 중지</strong>를 사용할 수 있습니다. 토론 화면에서는 <strong>더보기</strong> 안에 있습니다.</p><p>일시정지하면 남은 시간을 보관하고 화면을 가립니다. 방장이 <strong>게임 재개</strong>를 누르면 남은 시간부터 이어집니다. 연결을 기다리는 동안에도 별도로 중지하지 않으면 타이머는 진행됩니다.</p></details>
+      </section>
+
+      <section id="vote" class="panel" aria-labelledby="vote-title">
+        <p class="eyebrow">비밀 투표</p><h2 id="vote-title">20초 안에 한 명을 골라 제출합니다</h2>
+        <ol class="steps"><li><strong>나를 제외한 한 명</strong>을 누르고 <strong>비밀 투표 제출</strong>을 누릅니다. 대상 선택만으로는 제출되지 않습니다.</li><li>한 번 제출하면 바꿀 수 없습니다. 투표 중에는 제출 인원만 공개되고 각자의 투표 대상은 다른 사람에게 보이지 않습니다. 결과에는 받은 표 수와 사냥꾼의 자동 발동 대상이 표시됩니다.</li><li>모두 제출하거나 시간이 끝나면 <strong>5초 뒤 결과</strong>를 공개합니다. 미제출한 사람의 표는 집계되지 않습니다. 전송 실패 안내가 나오면 시간이 남아 있을 때 다시 제출해 주세요.</li></ol>
+        <h3>누가 처치되나요?</h3>
+        <p><strong>최다 득표가 2표 이상일 때, 최다 득표자만</strong> 처치됩니다. 최다 득표가 동점이면 그 동점자들을 모두 처치합니다. 모두 1표 이하이거나 미투표면 투표 처치자는 없습니다.</p>
+        <div class="examples"><p><strong>3표 · 2표</strong><br>3표 받은 한 명만 처치</p><p><strong>3표 · 3표 · 2표</strong><br>3표 받은 두 명만 처치</p><p><strong>1표 · 1표 · 1표</strong><br>아무도 처치되지 않음</p></div>
+        <p>투표로 처치된 사람의 최종 역할이 사냥꾼이면, 그 사람이 투표한 대상도 표 수에 관계없이 추가 처치됩니다. 결과 화면에 사냥꾼의 대상과 사망 원인이 표시됩니다.</p>
+      </section>
+
+      <section id="win" class="panel" aria-labelledby="win-title">
+        <p class="eyebrow">승리 조건</p><h2 id="win-title">최종 카드와 모든 처치 결과로 판정합니다</h2>
+        <p>아래의 “늑대인간이 있다·없다”는 <strong>참가자의 최종 역할</strong> 기준입니다. 중앙의 늑대 카드는 세지 않습니다. 늑대인간·무두장이를 복사한 도플갱어 카드도 해당 역할로 판정합니다. 사냥꾼의 추가 처치도 승패에 포함합니다.</p>
+        <dl class="win-list">
+          <dt>마을 편</dt><dd>최종 늑대인간이 한 명이라도 처치되면 승리합니다. 최종 늑대인간이 아무도 없으면 <strong>아무도 처치되지 않았을 때만</strong> 승리합니다. 마을 편 본인이 처치되어도 이 조건을 만족하면 함께 승리합니다.</dd>
+          <dt>늑대인간 편</dt><dd>최종 늑대인간이 한 명 이상 있고, 늑대인간이 아무도 처치되지 않으며, 무두장이도 처치되지 않으면 승리합니다. <strong>마을 편이 처치되어도</strong> 이 조건을 만족하면 늑대인간 편이 승리합니다.</dd>
+          <dt>하수인</dt><dd>늑대인간 편이 승리하면 함께 승리하며, 이때 하수인 자신이 처치되어도 됩니다. 최종 늑대인간이 아무도 없으면 <strong>하수인 본인은 살아남고 다른 사람이 처치되었을 때</strong> 승리합니다. 다른 사람이 무두장이여도 적용됩니다.</dd>
+          <dt>무두장이</dt><dd>자신이 처치되면 승리합니다. 무두장이와 늑대인간이 함께 처치되면 무두장이와 마을 편이 함께 승리할 수 있습니다. 무두장이가 처치되고 늑대인간은 모두 살아 있으면 늑대인간 편은 패배합니다.</dd>
+        </dl>
+        <aside class="callout"><strong>아무도 처치되지 않았다고 항상 늑대인간 승리는 아닙니다.</strong><p>아무도 처치되지 않았을 때, 최종 늑대인간이 있으면 늑대인간 편이, 없으면 마을 편이 승리합니다. 참가자 모두의 최종 역할이 마을 편인데 누군가 처치되면 모두 패배하는 것처럼, 승리자가 없는 결과도 있습니다.</p></aside>
+        <details><summary>헷갈리기 쉬운 승리 예시</summary><ul><li><strong>늑대인간 전원 생존 + 마을 편만 처치:</strong> 늑대인간 편과 하수인 승리.</li><li><strong>늑대인간 생존 + 무두장이만 처치:</strong> 무두장이 승리. 마을 편·늑대인간 편·하수인은 패배.</li><li><strong>늑대인간 없음 + 아무도 처치되지 않음:</strong> 마을 편 승리. 하수인·무두장이는 패배.</li><li><strong>늑대인간 없음 + 하수인 생존 + 무두장이 처치:</strong> 하수인과 처치된 무두장이가 함께 승리.</li><li><strong>늑대인간과 무두장이가 함께 처치:</strong> 마을 편과 처치된 무두장이가 함께 승리.</li></ul></details>
+        <p>결과 화면에서 중앙 카드, 모두의 시작 역할·최종 역할·받은 표 수와 사냥꾼의 자동 발동 대상을 확인할 수 있습니다. 생존 여부와 승리는 별개입니다.</p>
+      </section>
+
+      <section class="panel" aria-labelledby="replay-title">
+        <p class="eyebrow">다음 판과 연습</p><h2 id="replay-title">같은 방에서 다시 시작하기</h2>
+        <p>결과에서 방장이 <strong>다시 하기</strong>를 누르면 같은 코드의 대기실로 모두 돌아갑니다. 참가자·AI·역할 구성은 유지하고, 사람은 다시 준비합니다. 이전 역할·행동·투표·연장권과 <strong>채팅 기록은 초기화</strong>됩니다. 대기실에서 새로 나눈 채팅도 게임 시작 시 비워집니다.</p>
+        <p>대기실과 결과 화면의 <strong>메인으로 나가기</strong> 또는 상단 ONE NIGHT 아이콘으로 방을 나갈 수 있습니다. 방장이 나가면 남은 사람에게 방장 권한을 넘깁니다.</p>
+        <details><summary>AI와 연습하기</summary><p>대기실에서 방장이 AI 인원을 골라 여러 번 추가할 수 있습니다. 사람과 AI를 합쳐 최대 10명입니다. AI는 자동으로 밤 행동과 투표를 하지만, 사람처럼 음성·영상으로 토론하지는 않습니다.</p><p>AI가 있는 방의 방장에게는 연습용 단계 건너뛰기가 표시됩니다. <strong>밤 전체 건너뛰기</strong>는 남은 AI 행동을 처리하고, 미제출한 사람 행동은 생략합니다. <strong>AI 투표 완료하고 결과 보기</strong>는 이미 제출한 사람의 표를 유지하고, 미제출한 사람의 표는 집계하지 않습니다.</p><p>토론은 AI가 있어도 사람 과반의 동의로 종료합니다. 사람 1명과 AI로 연습한다면 그 사람의 동의만으로 종료됩니다.</p></details>
+      </section>
+
+      <section id="trouble" class="panel" aria-labelledby="trouble-title">
+        <p class="eyebrow">문제 해결</p><h2 id="trouble-title">막히면 이렇게 확인해 주세요</h2>
+        <dl class="compact-list"><dt>방에 들어갈 수 없어요</dt><dd>6자리 코드를 확인해 주세요. 이미 시작한 방에는 새로 참가할 수 없으며, 최대 인원은 AI 포함 10명입니다.</dd><dt>연결이 끊겼어요</dt><dd>자동 재연결을 잠시 기다려 주세요. 계속 안 되면 같은 기기·같은 브라우저에서 같은 주소를 다시 여세요. 저장된 접속 정보가 있어야 기존 참가자로 복귀할 수 있습니다. 브라우저를 바꾸거나 저장 정보를 지우면 복귀가 어려울 수 있습니다.</dd><dt>소리가 안 들려요</dt><dd>본인과 상대의 마이크가 켜졌는지 확인해 주세요. <strong>상대 소리 재생</strong>이 보이면 누르세요. 토론의 <strong>더보기 → 미디어 연결 재시도</strong>도 사용할 수 있습니다. 통화 중에는 화면을 켜고 게임 페이지를 유지해 주세요.</dd><dt>마이크·카메라가 안 켜져요</dt><dd>브라우저·기기의 권한과 다른 앱의 장치 사용 여부를 확인해 주세요. 휴대폰은 HTTPS 주소와 외부 브라우저를 사용해 주세요. 카메라는 배경 가림 처리도 지원해야 켜집니다. 첫 화면의 점검은 내 장치 입력 확인이며 상대방에게 실제로 전달되는지는 토론에서 서로 확인해야 합니다.</dd><dt>밤 행동이 적용되지 않았어요</dt><dd>대상 선택 뒤 확인·교환 버튼까지 눌렀는지 확인해 주세요. 불면증 환자는 자기 카드를 직접 눌러야 합니다. 시간 종료 전에 성공하지 않은 행동은 적용되지 않습니다.</dd></dl>
+      </section>
+    </main>
+    <footer><p>현재 앱 기준 · 2026년 10월 23일 수정</p><a class="button" href="../">게임으로 돌아가기</a></footer>
+  </div>
+</body>
+</html>

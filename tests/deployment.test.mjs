@@ -74,6 +74,25 @@ for (const base of ['', '/game-werewolf261020', '/games/wolf']) {
     assert.equal(index.status, 200);
     assert.match(await index.text(), /src="app.js"/);
     for (const asset of ['app.js', 'styles.css', 'camera-worker.js', 'vendor/mediapipe/wasm/vision_wasm_internal.wasm']) assert.equal((await fetch(url + base + '/' + asset)).status, 200);
+    // The existing in-game guide link must resolve on both root and subpath hosts.
+    const guideRedirect = await fetch(url + base + '/guide?from=lobby', { redirect: 'manual' });
+    assert.equal(guideRedirect.status, 301);
+    assert.equal(guideRedirect.headers.get('location'), base + '/guide/?from=lobby');
+    const guideUrl = url + base + '/guide/';
+    const guide = await fetch(guideUrl);
+    assert.equal(guide.status, 200);
+    assert.match(guide.headers.get('content-type'), /text\/html/);
+    const guideHtml = await guide.text();
+    assert.match(guideHtml, /<html lang="ko">/);
+    const ids = new Set([...guideHtml.matchAll(/\bid="([^"]+)"/g)].map(match => match[1]));
+    for (const [, href] of guideHtml.matchAll(/\bhref="(#[^"]+)"/g)) assert.ok(ids.has(href.slice(1)), `Missing guide anchor: ${href}`);
+    for (const [, href] of guideHtml.matchAll(/\bhref="([^#][^"]*)"/g)) {
+      const destination = new URL(href, guideUrl);
+      assert.ok(destination.pathname.startsWith(base + '/'));
+      assert.equal((await fetch(destination)).status, 200, `Missing guide destination: ${href}`);
+    }
+    const guideCss = await fetch(new URL('guide.css', guideUrl));
+    assert.match(guideCss.headers.get('content-type'), /text\/css/);
     assert.equal((await fetch(url + base + '/%ZZ')).status, 400);
     assert.equal((await fetch(url + base + '/%2e%2e%5cserver.mjs')).status, 404);
     const host = await client(t, port, base + '/signal?test=1');
