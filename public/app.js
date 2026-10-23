@@ -459,7 +459,7 @@ function nightTable() {
   const me=players.findIndex(p=>p.id===state.playerId);
   const seated=me<0?players:[...players.slice(me),...players.slice(0,me)];
   const positions=new Map(seated.map((p,i)=>{const angle=Math.PI/2+i*2*Math.PI/seated.length;return [p.id,{x:50+40*Math.cos(angle),y:50+39*Math.sin(angle)}];}));
-  const centerPosition=i=>({x:50+(i-1)*17,y:50});
+  const centerPosition=i=>({x:50+(i-1)*17,y:44});
   const face=(role,caption='확인 당시')=>`<span class="table-card-face"><span>${ROLE_INFO[role]?.emoji||'🎭'}</span><strong>${esc(ROLE_INFO[role]?.name||role)}</strong><small>${caption}</small></span>`;
   const back='<span class="table-card-back" aria-hidden="true"><span>☾</span><small>ONE NIGHT</small></span>';
   const revealed=nightTableFeedback?.revealed||[];
@@ -480,7 +480,7 @@ function nightTable() {
   const swaps=nightTableFeedback?.swapped||[];
   const swapPositions=swaps.map(card=>card.playerId?positions.get(card.playerId):centerPosition(card.centerIndex));
   const animation=swapPositions.length===2&&swapPositions.every(Boolean)?swapPositions.map((pos,i)=>`<div class="table-card flying-card" aria-hidden="true" style="--from-x:${pos.x}%;--from-y:${pos.y}%;--to-x:${swapPositions[1-i].x}%;--to-y:${swapPositions[1-i].y}%">${back}</div>`).join(''):'';
-  return `<div class="night-table ${spec?'my-turn':''} ${closeup?'insomniac-closeup':''} ${spec?.own&&!nightActionPending&&Date.now()-insomniacApproachAt<800?'insomniac-approaching':''}" role="group" aria-label="밤의 원탁 · 참가자 ${players.length}명과 중앙 카드 3장"><div class="table-felt"></div><div class="table-inscription">ONE NIGHT<span>비밀이 머무는 원탁</span></div>${playerCards}${centers}${animation}</div>`;
+  return `<div class="night-table ${spec?'my-turn':''} ${closeup?'insomniac-closeup':''} ${spec?.own&&!nightActionPending&&Date.now()-insomniacApproachAt<800?'insomniac-approaching':''}" role="group" aria-label="밤의 원탁 · 참가자 ${players.length}명과 중앙 카드 3장"><div class="table-felt"></div><div class="table-inscription">ONE NIGHT<span>비밀이 머무는 원탁</span></div>${playerCards}${centers}${closeup?'':`<div class="table-countdown">${timerMarkup()}</div>`}${animation}</div>`;
 }
 
 function nightPanel() {
@@ -494,7 +494,7 @@ function nightPanel() {
   const control=spec?.own?`<div class="table-waiting insomniac-instruction" role="status">${spec.guide}</div>`:spec?`<div class="night-actions table-actions"><p class="night-instruction">${spec.guide}</p><div class="table-selection" role="status" aria-live="polite">${selection?esc(selection):'빛나는 카드를 눌러 선택해 주세요.'}</div><button class="btn" id="submit-night" ${nightSelectionReady()?'':'disabled'}>${nightActionPending?'처리 중…':spec.button}</button><p class="table-hint">다시 누르면 선택 취소 · 확인 버튼을 누르면 적용됩니다.</p></div>`:`<div class="table-waiting" role="status">☾ ${nightTableFeedback?'행동을 완료했습니다. 다음 차례를 기다려 주세요.':'다른 참가자의 밤이 진행 중입니다. 내 차례가 되면 카드가 빛납니다.'}</div>`;
   const copiedAction=prompt?.role==='doppelganger-copy'&&state.room.nightTurn==='doppelganger';
   const actionGuide=copiedAction?`<div class="night-action-guide" role="status"><strong>복사 완료 · ${esc(ROLE_INFO[prompt.targetRole]?.name||prompt.targetRole)} 능력을 지금 사용하세요</strong><p>도플갱어의 남은 시간 안에 대상을 선택하고 아래 버튼을 눌러 주세요.</p></div>`:'';
-  return `<div class="section-kicker">NIGHT PHASE</div><h2 class="section-title">밤이 깊었습니다</h2><p class="section-copy">화면을 다른 사람에게 보여주지 마세요. 밤 행동은 정해진 순서로 진행됩니다.</p><div class="night-action-area"><div class="night-controls"><div class="night-status"><div class="night-turn" role="status"><span>지금 차례</span><strong>${turn.emoji} ${turn.name}</strong></div><div>${timerMarkup()}</div></div>${actionGuide}${control}</div>${nightTable()}</div>${privateResult}<details class="night-memory"><summary>내가 마지막으로 확인한 역할 · 나만 보기</summary><p>확인 이후 다른 사람의 행동으로 바뀌었을 수 있습니다.</p>${roleCard()}</details>`;
+  return `<div class="section-kicker">NIGHT PHASE</div><h2 class="section-title">밤이 깊었습니다</h2><p class="section-copy">화면을 다른 사람에게 보여주지 마세요. 밤 행동은 정해진 순서로 진행됩니다.</p><div class="night-action-area"><div class="night-controls"><div class="night-status"><div class="night-turn" role="status"><span>지금 차례</span><strong>${turn.emoji} ${turn.name}</strong></div></div>${actionGuide}${control}</div>${nightTable()}</div>${privateResult}<details class="night-memory"><summary>내가 마지막으로 확인한 역할 · 나만 보기</summary><p>확인 이후 다른 사람의 행동으로 바뀌었을 수 있습니다.</p>${roleCard()}</details>`;
 }
 
 function privateNotes() {

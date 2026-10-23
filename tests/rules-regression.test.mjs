@@ -46,6 +46,19 @@ function fixture(roles, centerRoles = ['villager', 'villager', 'villager']) {
 const winner=(result,id)=>result.winners.find(p=>p.id===id).win;
 const results=(f,id)=>f.messages(id).filter(m=>m.event==='night:result');
 
+test('night turns grant the requested extra time only to the five action roles',()=>{
+  for(const [role,ms] of Object.entries({doppelganger:16000,seer:10000,robber:10000,troublemaker:10000,drunk:8000,werewolf:5000,minion:5000,mason:5000,insomniac:5000})){
+    for(const hasActor of [true,false]){
+      const f=fixture([hasActor?role:'villager','villager','villager'],[role,'villager','villager']);
+      f.beginNight(f.room);f.beginAction(f.room,role);
+      assert.equal(f.room.timer.ms,ms,`${role}, hasActor=${hasActor}`);
+      assert.ok(Math.abs(f.publicRoom(f.room).timerEndsAt-Date.now()-ms)<1000);
+      f.timerExpired(f.room);
+      assert.notEqual(f.room.activeRole,role);
+    }
+  }
+});
+
 for(const [role,data] of [
   ['seer',{centerIndexes:[0,1]}],
   ['robber',{targetId:'p2'}],
@@ -54,7 +67,7 @@ for(const [role,data] of [
 ])test(`doppelganger copies ${role}, reconnects, and completes its immediate ability once`,()=>{
   const f=fixture(['doppelganger',role,'werewolf'],['tanner','villager','hunter']);
   f.beginAction(f.room,'doppelganger');const deadline=f.room.timerEndsAt;
-  assert.equal(f.room.timer.ms,13000);
+  assert.equal(f.room.timer.ms,16000);
   f.applyNightAction(f.room,'p0',{targetId:'p1'});
   const restored=f.reconnect('p0');
   const prompt=restored.find(m=>m.event==='night:prompt').data;
