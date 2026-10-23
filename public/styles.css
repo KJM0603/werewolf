@@ -104,8 +104,6 @@ h1 { font-size:clamp(38px, 7vw, 66px); letter-spacing:-.065em; line-height:1.08;
 .night-actions select { margin:5px 0 10px; }
 .night-actions .btn { width:100%; }
 .night-action-area { scroll-margin:16px; }
-.night-status { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:16px 0; }
-.night-status .night-turn { margin:0; }
 .night-action-guide { padding:12px 14px; border:1px solid #b39cf377; border-radius:12px; background:#2c263b; color:#e5dafb; }
 .night-action-guide p { margin:6px 0 0; color:#c1b7d2; font-size:12px; line-height:1.5; }
 
@@ -116,7 +114,6 @@ body:has(.night-shell) { min-width:0; }
 .night-shell .main-panel { background:radial-gradient(ellipse at 50% 60%,#292339 0,#191920 70%); padding:24px 32px; }
 .night-shell .section-copy { margin-bottom:8px; }
 .night-shell .night-action-area { max-width:940px; margin:auto; }
-.night-shell .night-status { margin:14px 0; }
 .table-actions { width:100%; margin:12px auto 0; text-align:center; display:grid; grid-template-columns:1fr auto; gap:6px 20px; align-items:center; }
 .night-instruction { margin:0; font-size:16px; color:#f0eaf9; text-align:left; }
 .table-selection { grid-column:1; text-align:left; color:#d2b9ff; font-size:14px; min-height:22px; }
@@ -128,12 +125,20 @@ body:has(.night-shell) { min-width:0; }
 .table-waiting { min-height:84px; padding:24px 12px; color:#bbb1cd; text-align:center; font-size:14px; }
 .night-table { position:relative; width:100%; height:540px; margin:12px auto 8px; isolation:isolate; }
 .table-felt { position:absolute; inset:8% 3%; border-radius:50%; border:10px solid #4a3b4b; background:radial-gradient(ellipse,#373046,#252437 68%,#1d1b2b); box-shadow:0 0 0 1px #b29b7055,inset 0 0 0 2px #b39c7055,inset 0 0 50px #0007,0 20px 50px #0006; }
+.my-turn .table-felt { border-color:#8a7198; background:radial-gradient(ellipse,#4b3e60,#302b43 68%,#262137); box-shadow:0 0 0 1px #ceb1fa77,inset 0 0 65px #cda7ff20,0 0 38px #b795e52b,0 20px 50px #0006; }
+.my-turn .table-felt::before { content:''; position:absolute; inset:0; border-radius:inherit; pointer-events:none; box-shadow:inset 0 0 65px #cda7ff22,0 0 36px #b795e522; animation:night-table-glow 2.8s ease-in-out infinite alternate; }
 .table-felt::after { content:''; position:absolute; inset:15px; border:1px dashed #ae93ca30; border-radius:50%; }
 .table-inscription { position:absolute; top:26%; width:100%; text-align:center; font-size:12px; letter-spacing:.3em; color:#c4b2d1; pointer-events:none; }
 .table-inscription span { display:block; margin-top:7px; font-size:10px; letter-spacing:.1em; color:#9b8fae; }
 .table-countdown { position:absolute; top:calc(44% + 80px); left:50%; transform:translateX(-50%); text-align:center; pointer-events:none; }
+.night-clock { display:flex; justify-content:center; align-items:center; gap:14px; }
+.night-clock .night-turn { display:flex; flex-direction:column; align-items:flex-start; gap:3px; margin:0; padding:0; border:0; border-radius:0; background:none; text-align:left; }
+.night-clock .night-turn>span { font-size:10px; color:#c5b1dc; }
+.night-clock .night-turn strong { max-width:150px; font-size:15px; line-height:1.4; overflow-wrap:anywhere; }
 .table-countdown .timer,.insomniac-timer .timer { width:auto; height:auto; margin:0; border:0; box-shadow:none; font-size:52px; line-height:1; font-weight:800; font-variant-numeric:tabular-nums; letter-spacing:-.03em; color:#f5e9ff; text-shadow:0 0 24px #bc92ee55; }
-.table-countdown .timer-label,.insomniac-timer .timer-label { margin:4px 0 0; font-size:11px; line-height:14px; color:#c9b9dc; white-space:nowrap; }
+.night-clock .timer { flex:none; min-width:2ch; }
+.night-turn-overlay { position:fixed; inset:0; z-index:100; display:grid; place-items:center; pointer-events:none; background:radial-gradient(ellipse,#241937c9,#100d18b8); animation:night-turn-announcement .7s ease-out both; }
+.night-turn-overlay>span { padding:24px; color:#f3e6ff; font-size:clamp(48px,12vw,96px); font-weight:800; letter-spacing:.06em; text-shadow:0 0 42px #c99af299; }
 .table-seat,.table-center-slot { position:absolute; transform:translate(-50%,-50%); display:flex; flex-direction:column; align-items:center; }
 .table-seat { width:100px; }
 .seat-name { position:absolute; bottom:calc(100% + 7px); display:flex; align-items:center; gap:5px; max-width:112px; font-size:12px; white-space:nowrap; color:#d6ccdf; }
@@ -147,9 +152,10 @@ body:has(.night-shell) { min-width:0; }
 .table-card-back>span { font-size:32px; line-height:1.2; }
 .table-card-back small { margin-top:5px; font-size:7px; letter-spacing:.12em; }
 .table-card:not(:disabled) { border-color:#d3b3ff; box-shadow:0 0 0 2px #aa91ee30,0 0 20px #ae83f329,0 6px 12px #0005; }
+.table-card:not(:disabled):not(.selected) { animation:night-card-glow 2.2s ease-in-out infinite alternate; }
 .table-card:not(:disabled):hover { transform:translateY(-5px); box-shadow:0 0 24px #b79aef77; }
 .table-card:focus-visible { outline:3px solid #e7d5ff; outline-offset:5px; }
-.table-card.selected { transform:translateY(-7px); border:2px solid #edce91; box-shadow:0 0 0 3px #edce9122,0 0 26px #edce9144; }
+.table-card.selected { transform:translateY(-7px); border:2px solid #edce91; box-shadow:0 0 0 3px #edce9144,0 0 28px #edce9177; }
 .card-check { position:absolute; right:-7px; top:-9px; display:grid; place-items:center; width:23px; height:23px; border-radius:50%; background:#eed49d; color:#30223d; font-size:13px; font-weight:800; }
 .table-card.revealed { background:linear-gradient(145deg,#f0e1c5,#cbb4da); color:#2b203a; border-color:#f9e4b8; animation:table-reveal .45s ease-out; }
 .table-card.revealed.awakened { box-shadow:0 0 0 2px #c2a1f044,0 0 28px #b48ee466,0 6px 10px #0005; }
@@ -162,14 +168,18 @@ body:has(.night-shell) { min-width:0; }
 .night-memory { max-width:520px; margin:20px auto 0; padding:14px; border:1px solid #ffffff18; border-radius:12px; color:#b8adc8; font-size:13px; }
 .night-memory summary { cursor:pointer; min-height:24px; }
 @keyframes table-reveal { from { transform:rotateY(85deg); } to { transform:rotateY(0); } }
+@keyframes night-turn-announcement { 0% { opacity:0; } 15%,65% { opacity:1; } 100% { opacity:0; } }
+@keyframes night-table-glow { from { opacity:.4; } to { opacity:1; } }
+@keyframes night-card-glow { from { box-shadow:0 0 0 2px #aa91ee35,0 0 14px #ae83f32b,0 6px 12px #0005; } to { box-shadow:0 0 0 2px #d5b3ff77,0 0 25px #c1a0ff66,0 6px 12px #0005; } }
 @keyframes table-swap { 0% { left:var(--from-x); top:var(--from-y); transform:translate(-50%,-50%); opacity:1; } 45% { transform:translate(-50%,-75%) rotate(-10deg) scale(1.12); opacity:1; } 90% { left:var(--to-x); top:var(--to-y); transform:translate(-50%,-50%); opacity:1; } 100% { left:var(--to-x); top:var(--to-y); transform:translate(-50%,-50%); opacity:0; } }
 @media(max-width:760px) {
   .night-shell.game-shell { padding:14px 10px 30px; }
   .night-shell .main-panel { padding:18px 10px; }
   .night-shell .game-top .room-code { display:none; }
-  .night-shell .night-turn { padding:8px 10px; gap:6px; }
-  .night-shell .night-turn strong { font-size:12px; }
-  .table-countdown { top:calc(44% + 60px); }
+  .table-countdown { top:calc(44% + 64px); }
+  .night-clock { gap:8px; }
+  .night-clock .night-turn { width:78px; flex:none; }
+  .night-clock .night-turn strong { font-size:12px; }
   .table-countdown .timer,.insomniac-timer .timer { font-size:44px; }
   .table-actions { grid-template-columns:1fr; gap:7px; }
   .night-instruction { font-size:15px; text-align:center; line-height:1.5; }
@@ -192,8 +202,10 @@ body:has(.night-shell) { min-width:0; }
   .table-inscription { top:29%; font-size:10px; }
 }
 @media(prefers-reduced-motion:reduce) {
-  .night-table .table-card { transition:none; animation:none; }
+  .night-table .table-card,.night-table .table-card:not(:disabled):not(.selected) { transition:none; animation:none; }
   .night-table .flying-card { display:none; }
+  .night-table .table-felt::before { animation:none; }
+  .night-turn-overlay { animation:none; }
 }
 .insomniac-closeup::after { content:''; position:absolute; inset:0; z-index:2; border-radius:24px; background:#14111dcc; pointer-events:none; }
 .night-table .insomniac-seat { left:50%!important; top:58%!important; width:auto; z-index:3; }

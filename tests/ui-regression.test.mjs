@@ -5,7 +5,7 @@ import test from 'node:test';
 const source=readFileSync(new URL('../public/app.js',import.meta.url),'utf8').split('setInterval(()=>')[0];
 function ui(document={querySelector:()=>null}) {
   const context=vm.createContext({document,setTimeout(){},clearTimeout(){},WebSocket:{OPEN:1}});
-  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,roleCard,bindGameEvents,bindChatEvents,chatPanel,nightPanel,nightTable,selectNightCard,nightSelectionReady,submitNight,render,toggleMobileDiscussion,syncDiscussionViewport,updateMobileDiscussionControls};`,context);
+  vm.runInContext(`${source}\nglobalThis.api={state,handleMessage,resultPanel,resultSummary,roleCard,bindGameEvents,bindChatEvents,chatPanel,nightPanel,nightTable,selectNightCard,nightSelectionReady,submitNight,render,toggleMobileDiscussion,syncDiscussionViewport,updateMobileDiscussionControls,timerMarkup,updateCountdown,isMyNightTurn,nightTurnOverlay};`,context);
   return {...context.api,context};
 }
 function result(roles,wins,killed=[]) {
@@ -348,6 +348,62 @@ function tableFixture(role='seer',count=10) {
   const sent=[];f.state.ws={readyState:1,send:message=>sent.push(JSON.parse(message))};
   return {...f,sent};
 }
+test('night clock uses seconds beside the public role and updates through zero without changing other clocks',()=>{
+  const nodes=[{hasAttribute:()=>true,textContent:''},{hasAttribute:()=>false,textContent:''}];
+  const f=ui({querySelector:()=>null,querySelectorAll:()=>nodes});
+  f.context.clockNow=1000;vm.runInContext('Date.now=()=>clockNow;',f.context);
+  f.state.playerId='p0';f.state.timerNow=500;
+  f.state.room={phase:'night',nightTurn:'seer',timerEndsAt:11000,players:[{id:'p0',name:'나'}]};
+  assert.match(f.nightTable(),/class="night-clock"[\s\S]*예언자[\s\S]*data-seconds-only[^>]*>10</);
+  assert.equal((f.nightPanel().match(/class="night-turn"/g)||[]).length,1);
+  for(const [now,night,normal] of [[1000,'10','00:10'],[2001,'09','00:09'],[12000,'00','00:00']]){
+    f.context.clockNow=now;f.updateCountdown();assert.equal(nodes[0].textContent,night);assert.equal(nodes[1].textContent,normal);
+  }
+  f.state.room.phase='voting';f.state.room.timerEndsAt=82000;f.state.timerNow=12000;
+  assert.match(f.timerMarkup(),/>01:10</);assert.doesNotMatch(f.timerMarkup(),/data-seconds-only/);
+});
+
+test('private wake-up cues wait for the public turn, last 700ms, and never repeat for errors, copies or resume',()=>{
+  let removed=0;const timers=[];
+  const f=tableFixture('doppelganger',3);f.state.prompt=null;f.state.room.nightTurn='werewolf';
+  f.context.document.querySelector=selector=>selector==='.night-turn-overlay'?{remove(){removed++;}}:null;
+  f.context.setTimeout=(fn,ms)=>{const timer={fn,ms};timers.push(timer);return timer;};
+  f.context.clearTimeout=timer=>{if(timer)timer.cancelled=true;};
+  f.context.clockNow=1000;vm.runInContext('Date.now=()=>clockNow;',f.context);
+  const prompt={role:'doppelganger',players:f.state.room.players.slice(1),centerCount:3};
+  f.handleMessage('night:prompt',prompt);assert.equal(f.nightTurnOverlay(),'');assert.equal(timers.length,0);
+  f.handleMessage('game:phase',{...f.state.room,nightTurn:'doppelganger'});
+  assert.equal(f.isMyNightTurn(),true);assert.match(f.nightTurnOverlay(),/내 차례/);assert.equal(timers[0].ms,700);
+  f.context.clockNow=1300;assert.match(f.nightTurnOverlay(),/animation-delay:-300ms/);
+  f.handleMessage('error',{message:'retry'});
+  f.handleMessage('night:result',{currentRole:'robber'});
+  f.handleMessage('night:prompt',{...prompt,role:'doppelganger-copy',targetRole:'robber'});
+  f.context.clockNow=1700;timers[0].fn();assert.equal(removed,1);assert.equal(f.nightTurnOverlay(),'');
+  assert.equal(timers.length,1);assert.match(f.nightTable(),/night-table my-turn/);
+  f.handleMessage('game:paused',{...f.state.room,phase:'paused'});assert.equal(f.isMyNightTurn(),false);
+  f.handleMessage('game:resumed',{...f.state.room,phase:'night'});assert.equal(timers.length,1);
+  f.handleMessage('game:phase',{...f.state.room,nightTurn:'seer'});assert.equal(f.isMyNightTurn(),false);
+  assert.doesNotMatch(f.nightTable(),/night-table my-turn/);
+});
+
+test('information-only roles get their own cue, historical replay stays quiet, and a new round can announce again',()=>{
+  const f=tableFixture('minion',3);f.state.prompt=null;
+  const data={role:'minion',wolves:[],table:{revealed:[]}};
+  f.handleMessage('night:info',{...data,replay:true});assert.equal(f.nightTurnOverlay(),'');assert.equal(f.isMyNightTurn(),false);
+  f.handleMessage('night:info',data);assert.equal(f.isMyNightTurn(),true);assert.match(f.nightTurnOverlay(),/내 차례/);
+  f.handleMessage('room:state',{...f.state.room,phase:'lobby'});assert.equal(f.nightTurnOverlay(),'');
+  f.handleMessage('game:phase',{...f.state.room,phase:'night'});f.handleMessage('night:info',data);
+  assert.match(f.nightTurnOverlay(),/내 차례/);
+});
+
+test('seer center selections keep distinct order badges while cancellation renumbers the remaining card',()=>{
+  const f=tableFixture('seer',3);f.selectNightCard('center',2);f.selectNightCard('center',0);
+  assert.match(f.nightTable(),/data-center="2"[\s\S]*?class="card-check">1</);
+  assert.match(f.nightTable(),/data-center="0"[\s\S]*?class="card-check">2</);
+  f.selectNightCard('center',2);assert.match(f.nightTable(),/data-center="0"[\s\S]*?class="card-check">1</);
+  assert.equal(f.nightSelectionReady(),false);
+});
+
 test('insomniac sees the granted own card, while replay keeps the table face down',()=>{
   const f=tableFixture('insomniac');f.state.prompt=null;
   f.handleMessage('night:info',{role:'insomniac',currentRole:'werewolf'});

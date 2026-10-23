@@ -6,14 +6,15 @@ import {randomBytes} from 'node:crypto';
 import {join} from 'node:path';
 import vm from 'node:vm';
 const port=Number(process.env.NIGHT_TABLE_PORT||4190);
+const realTime=process.env.NIGHT_TABLE_REALTIME==='1';
 const source=readFileSync('server.mjs','utf8').split('const server = createServer(')[0].replace(/^import .*;\r?$/gm,'');
-const context=vm.createContext({Buffer,process,join,randomBytes,setTimeout:(fn,ms)=>setTimeout(fn,Math.max(ms,120000)),clearTimeout});
+const context=vm.createContext({Buffer,process,join,randomBytes,setTimeout:(fn,ms)=>setTimeout(fn,realTime?ms:Math.max(ms,120000)),clearTimeout});
 vm.runInContext(`${source}\nglobalThis.api={rooms,handle,beginNight,applyNightAction,publicRoom,send,privateSend,timerExpired};`,context);
 const api=context.api;let room,ws,messages=[],exchange=null;
 function advanceTurn(){
   if(exchange&&room.activeRole==='troublemaker'&&room.actionPrompt?.playerId===exchange.actor)api.applyNightAction(room,exchange.actor,{targetId:'me',secondTargetId:exchange.target});
   clearTimeout(room.timer);api.timerExpired(room);
-  room.timerEndsAt=Date.now()+120000;api.send(ws,'room:state',api.publicRoom(room));
+  if(!realTime)room.timerEndsAt=Date.now()+120000;api.send(ws,'room:state',api.publicRoom(room));
 }
 const allowed=['seer','robber','troublemaker','drunk','werewolf','minion','mason','insomniac','doppelganger','villager'];
 function setup(role,count,copy,companion,current){
@@ -43,9 +44,9 @@ function setup(role,count,copy,companion,current){
   for(let i=0;i<20&&room.phase==='night'&&room.activeRole!==role&&role!=='villager';i++){
     advanceTurn();
   }
-  room.timerEndsAt=Date.now()+120000;api.send(ws,'room:state',api.publicRoom(room));
+  if(!realTime)room.timerEndsAt=Date.now()+120000;api.send(ws,'room:state',api.publicRoom(room));
 }
-const controls=`<div style="padding:12px;display:flex;gap:8px;flex-wrap:wrap"><label>역할 <select id="test-role">${allowed.map(role=>`<option>${role}</option>`).join('')}</select></label><label>인원 <select id="test-count">${[3,5,8,10].map(n=>`<option ${n===10?'selected':''}>${n}</option>`).join('')}</select></label><label>복사 역할 <select id="copy-role">${['seer','robber','troublemaker','drunk','werewolf','minion','mason','insomniac'].map(role=>`<option>${role}</option>`).join('')}</select></label><label>동료 <select id="test-companion"><option value="0">없음</option><option value="1">있음 (하수인은 늑대 2명)</option></select></label><label>불면증 확인 카드 <select id="test-current"><option value="insomniac">그대로</option><option value="werewolf">늑대인간으로 교환</option><option value="seer">예언자로 교환</option></select></label><button id="test-start">원탁 테스트 시작</button><button id="test-timeout">시간 종료</button><button id="test-error">다음 요청 오류</button><span>검증용 · 행동 시간 120초</span></div>`;
+const controls=`<div style="padding:12px;display:flex;gap:8px;flex-wrap:wrap"><label>역할 <select id="test-role">${allowed.map(role=>`<option>${role}</option>`).join('')}</select></label><label>인원 <select id="test-count">${[3,5,8,10].map(n=>`<option ${n===10?'selected':''}>${n}</option>`).join('')}</select></label><label>복사 역할 <select id="copy-role">${['seer','robber','troublemaker','drunk','werewolf','minion','mason','insomniac'].map(role=>`<option>${role}</option>`).join('')}</select></label><label>동료 <select id="test-companion"><option value="0">없음</option><option value="1">있음 (하수인은 늑대 2명)</option></select></label><label>불면증 확인 카드 <select id="test-current"><option value="insomniac">그대로</option><option value="werewolf">늑대인간으로 교환</option><option value="seer">예언자로 교환</option></select></label><button id="test-start">원탁 테스트 시작</button><button id="test-timeout">시간 종료</button><button id="test-error">다음 요청 오류</button><span>${realTime?'검증용 · 실제 역할별 시간':'검증용 · 행동 시간 120초'}</span></div>`;
 const html=`<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>밤 원탁 검증</title><link rel="stylesheet" href="/styles.css">${controls}<main id="app"></main><div id="toast" class="toast"></div><script>localStorage.removeItem('one-night-session');</script><script src="/app.js"></script><script>
 const accept=events=>events.forEach(message=>handleMessage(message.event,message.data));let rejectNext=false;
 send=(event,data={})=>{if(rejectNext){rejectNext=false;setTimeout(()=>handleMessage('error',{message:'검증용 오류입니다. 다시 시도해 주세요.'}),200);return true;}fetch('/action',{method:'POST',body:JSON.stringify({event,data})}).then(r=>r.json()).then(accept);return true;};
