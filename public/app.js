@@ -6,6 +6,20 @@ const ROLE_INFO = {
 };
 const ROLE_MAX = {werewolf:2, seer:1, robber:1, troublemaker:1, drunk:1, insomniac:1, villager:3, doppelganger:1, tanner:1, minion:1, mason:2, hunter:1};
 const ROLE_STEP = {mason:2};
+const ROLE_GUIDES = {
+  werewolf:'내 차례에 다른 늑대인간을 확인합니다. 혼자 깨어났다면 중앙 카드 3장 중 1장을 확인할 수 있습니다.',
+  seer:'중앙 카드 3장 중 2장, 또는 다른 사람의 카드 1장을 확인합니다. 두 방법 중 하나만 선택하세요.',
+  robber:'다른 사람 1명과 내 카드를 바꾼 뒤, 새로 받은 역할을 확인합니다.',
+  troublemaker:'나를 제외한 두 사람의 카드를 서로 바꿉니다. 바꾼 카드의 역할은 볼 수 없습니다.',
+  drunk:'중앙 카드 3장 중 1장과 내 카드를 바꿉니다. 새로 받은 역할은 확인할 수 없습니다.',
+  insomniac:'밤이 끝날 무렵, 내 카드를 눌러 현재 역할을 다시 확인합니다.',
+  villager:'밤에는 행동하지 않습니다. 토론에서 다른 사람의 이야기를 듣고 늑대인간을 찾아보세요.',
+  doppelganger:'다른 사람 1명의 카드를 확인하고 그 역할과 능력을 복사합니다. 이어지는 안내에 따라 행동하세요.',
+  tanner:'밤에는 행동하지 않습니다. 최종 역할이 무두장이면 투표나 사냥꾼의 능력으로 사망해야 승리합니다.',
+  minion:'내 차례에 늑대인간이 누구인지 확인합니다. 늑대인간에게 내 정체는 알려지지 않습니다.',
+  mason:'내 차례에 다른 프리메이슨이 누구인지 확인합니다. 동료가 없다면 혼자라는 안내가 표시됩니다.',
+  hunter:'밤에는 행동하지 않습니다. 최종 역할이 사냥꾼이면, 최다 득표로 사망할 때 내가 투표한 대상도 자동으로 사망합니다.'
+};
 const app = document.querySelector('#app');
 const toastEl = document.querySelector('#toast');
 const state = { ws:null, room:null, playerId:null, sessionToken:null, isHost:false, privateRole:null, privateVisible:true, prompt:null, privateResults:[], selectedTarget:null, selectedSecond:null, selectedCenter:[], micOn:false, cameraOn:false, cameraPending:false, cameraController:null, cameraPipeline:null, localStream:null, audioStream:null, videoStream:null, peers:new Map(), remoteStreams:new Map(), chat:[], error:'', timerNow:Date.now(), rolesPending:false, resultSplashComplete:true, resultSplashId:0 };
@@ -462,8 +476,8 @@ function videoGrid(room) {return `<div class="video-grid discussion-video-grid p
 function roleCard() {
   if(!state.privateRole)return `<div class="role-card"><div class="role-secret">서버가 비공개 역할을 배정하고 있습니다.</div></div>`;
   const role=ROLE_INFO[state.privateRole]||{name:state.privateRole,emoji:'🎭'};
-  const guide=state.privateRole==='hunter'?'최종 역할이 사냥꾼이면, 최다 득표로 사망할 때 내가 투표한 대상도 자동으로 사망합니다. 투표 단계에서 대상을 선택하고 비밀 투표를 제출해 주세요. 밤에는 행동하지 않습니다.':'';
-  return `<div class="role-card ${state.privateVisible?'':'secret-back'}" id="role-card">${state.privateVisible?`<div class="role-emoji">${role.emoji}</div><div class="role-name">${role.name}</div><div class="role-secret">이 역할은 나에게만 보여요.${guide?`<br>${guide}`:''}</div>`:`<div class="role-emoji">🎴</div><div class="role-name">역할 가림</div><div class="role-secret">탭해서 내 역할 확인</div>`}</div><div class="inline-actions" style="justify-content:center"><button class="btn ghost small" id="hide-role">${state.privateVisible?'역할 가리기':'역할 확인'}</button></div>`;
+  const guide=ROLE_GUIDES[state.privateRole];
+  return `<div class="role-card ${state.privateVisible?'':'secret-back'}" id="role-card">${state.privateVisible?`<div class="role-emoji">${role.emoji}</div><div class="role-name">${role.name}</div><div class="role-secret">이 역할은 나에게만 보여요.</div>${guide?`<div class="role-guide"><strong>역할 안내</strong><p>${esc(guide)}</p></div>`:''}`:`<div class="role-emoji">🎴</div><div class="role-name">역할 가림</div><div class="role-secret">탭해서 내 역할 확인</div>`}</div><div class="inline-actions" style="justify-content:center"><button class="btn ghost small" id="hide-role">${state.privateVisible?'역할 가리기':'역할 확인'}</button></div>`;
 }
 
 function nightActionSpec() {

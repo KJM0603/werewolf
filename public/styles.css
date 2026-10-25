@@ -109,6 +109,9 @@ h1 { font-size:clamp(38px, 7vw, 66px); letter-spacing:-.065em; line-height:1.08;
 .role-emoji { font-size:43px; }
 .role-name { font-size:24px; font-weight:700; margin-top:12px; }
 .role-secret { color:#a09ba9; font-size:12px; margin-top:8px; }
+.role-guide { margin-top:18px; padding-top:16px; border-top:1px solid #ffffff18; text-align:left; line-height:1.7; overflow-wrap:anywhere; }
+.role-guide strong { color:#cbb5ff; font-size:12px; }
+.role-guide p { margin:6px 0 0; color:#e3dfea; font-size:14px; }
 .secret-back { background:#24222c; cursor:pointer; }
 .night-actions { width:min(500px, 100%); margin:20px auto; }
 .night-actions select { margin:5px 0 10px; }
