@@ -46,8 +46,8 @@ function fixture(roles, centerRoles = ['villager', 'villager', 'villager']) {
 const winner=(result,id)=>result.winners.find(p=>p.id===id).win;
 const results=(f,id)=>f.messages(id).filter(m=>m.event==='night:result');
 
-test('night turns grant the requested extra time only to the five action roles',()=>{
-  for(const [role,ms] of Object.entries({doppelganger:16000,seer:10000,robber:10000,troublemaker:10000,drunk:8000,werewolf:5000,minion:5000,mason:5000,insomniac:5000})){
+test('night turns use role-specific durations regardless of center-only placement',()=>{
+  for(const [role,ms] of Object.entries({doppelganger:16000,seer:10000,robber:10000,troublemaker:10000,drunk:8000,werewolf:10000,minion:5000,mason:5000,insomniac:5000})){
     for(const hasActor of [true,false]){
       const f=fixture([hasActor?role:'villager','villager','villager'],[role,'villager','villager']);
       f.beginNight(f.room);f.beginAction(f.room,role);

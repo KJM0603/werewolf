@@ -266,7 +266,7 @@ function beginVoteReveal(room, reason) {
 }
 
 function beginAction(room, role) {
-  const durationMs = role === 'doppelganger' ? 16000 : ['seer', 'robber', 'troublemaker'].includes(role) ? 10000 : role === 'drunk' ? 8000 : 5000;
+  const durationMs = role === 'doppelganger' ? 16000 : ['werewolf', 'seer', 'robber', 'troublemaker'].includes(role) ? 10000 : role === 'drunk' ? 8000 : 5000;
   room.activeRole = role;
   room.actionActors = actorIds(room, role).filter((id) => !room.actionDone.has(`${role}:${id}`));
   room.actionIndex = 0;
@@ -282,7 +282,7 @@ function beginAction(room, role) {
       if (wolves.length !== 1) room.actionDone.add(`${role}:${id}`);
     }
     if (wolves.length !== 1 || !active) {
-      setTimer(room, 5000); broadcast(room, 'game:phase', publicRoom(room)); return;
+      setTimer(room, durationMs); broadcast(room, 'game:phase', publicRoom(room)); return;
     }
   }
   if (role === 'minion') {

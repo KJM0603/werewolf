@@ -48,12 +48,13 @@ test('before selection, the lone wolf receives its own waking card and no center
   assert.equal(results(f.messages[0]).length, 0);
   assert.ok(f.messages.flat().every(m => !('loneCenter' in m.data) && !('center' in m.data)));
   assert.ok(f.messages.slice(1).flat().every(m => !m.event.startsWith('night:')));
-  assert.equal(f.room.timer.ms, 5000);
+  assert.equal(f.room.timer.ms, 10000);
 });
 
 for (const [index, expected] of ['예언자', '주정뱅이', '무두장이'].entries()) {
   test(`selecting center ${index + 1} reveals only that card privately, once`, () => {
     const f = fixture();
+    const deadline = f.room.timerEndsAt;
     f.applyNightAction(f.room, 'p0', { centerIndex: index });
     assert.deepEqual(results(f.messages[0]).map(m => m.data), [
       { title: `중앙 카드 ${index + 1} 확인`, roles: [expected], table: { revealed: [{playerId:'p0',role:'werewolf',awakening:true},{centerIndex:index,role:["seer","drunk","tanner"][index]}] } },
@@ -61,7 +62,8 @@ for (const [index, expected] of ['예언자', '주정뱅이', '무두장이'].en
     assert.ok(f.messages.slice(1).every(m => results(m).length === 0));
     assert.equal(f.room.actionPrompt, null);
     assert.equal(f.room.phase, 'night');
-    assert.equal(f.room.timer.ms, 5000); // Do not reset the public deadline after a selection.
+    assert.equal(f.room.timer.ms, 10000);
+    assert.equal(f.room.timerEndsAt, deadline); // Do not reset the public deadline after a selection.
     f.applyNightAction(f.room, 'p0', { centerIndex: (index + 1) % 3 });
     assert.equal(results(f.messages[0]).length, 1);
     f.timerExpired(f.room);
@@ -87,6 +89,7 @@ test('invalid selection and another player cannot reveal a card or consume the t
 for (const roles of [['werewolf', 'werewolf', 'villager'], ['werewolf', 'doppelganger', 'villager']]) {
   test(`multiple waking wolves have no center-card permission: ${roles.join(', ')}`, () => {
     const f = fixture(roles, roles.includes('doppelganger'));
+    assert.equal(f.room.timer.ms, 10000);
     assert.equal(f.room.actionPrompt, null);
     assert.ok(f.messages.flat().every(m => m.event !== 'night:prompt'));
     for (const id of ['p0', 'p1']) f.applyNightAction(f.room, id, { centerIndex: 1 });
